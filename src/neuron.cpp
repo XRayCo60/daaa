@@ -17,14 +17,19 @@ Neuron::Neuron(uint32_t nid, NeuronType t) : id(nid), type(t) {
     I_input = 0.0f;
     mana = 20.0f; // اولیه
     mana_threshold_sprout = 100.0f;
+    // حافظه طبق درخواست جدید: معمولی 96KB, حافظه‌ای 512KB + 96KB
+    personal_memory.resize(NORMAL_MEM_SIZE, 0);
     if (t == NeuronType::MEMORY) {
-        local_memory.resize(8192, 0);
+        storage_memory.resize(MEMORY_STORAGE_SIZE, 0);
         mana_threshold_sprout = 200.0f;
     } else {
-        local_memory.resize(256, 0);
+        storage_memory.clear();
     }
     storage_arch_id = 0;
     ticks_since_arch_change = 0;
+    ticks_since_full_rewrite = 0;
+    full_rewrite_count = 0;
+    forget_counter = 0;
     is_soft = false;
     soft_timer = 0;
     last_soft_choice = SoftnessChoice::NONE;
@@ -107,8 +112,8 @@ bool Neuron::tick(std::mt19937& rng) {
         spike_count++;
         I_input = 0; // بعد از اسپایک، ورودی ریست
         // حافظه محلی: ثبت اینکه اسپایک شد
-        if (!local_memory.empty()) {
-            local_memory[0] = (local_memory[0] + 1) & 0xFF;
+        if (!personal_memory.empty()) {
+            personal_memory[0] = (personal_memory[0] + 1) & 0xFF;
         }
         return true;
     }
@@ -180,10 +185,10 @@ void Neuron::mutateFunction(std::mt19937& rng) {
 }
 
 void Neuron::writeLocalMemory(size_t offset, uint8_t value) {
-    if (offset < local_memory.size()) local_memory[offset] = value;
+    if (offset < personal_memory.size()) personal_memory[offset] = value;
 }
 uint8_t Neuron::readLocalMemory(size_t offset) const {
-    if (offset < local_memory.size()) return local_memory[offset];
+    if (offset < personal_memory.size()) return personal_memory[offset];
     return 0;
 }
 

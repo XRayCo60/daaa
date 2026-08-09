@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AFU مغز مصنوعی — داشبورد گرافیکی</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>🧠 AFU — مغز مصنوعی (شبیه‌ساز مدار عصبی)</h1>
+  <div class="sub">مدل همواره در حال فکر است — spontaneous firing فعال، حتی بدون ورودی • خروجی یک تصمیم است نه اجبار</div>
+</header>
+
+<div class="top-controls">
+  <button id="btnToggleSim">⏸ توقف شبیه‌سازی</button>
+  <button id="btnTick">تک تیک</button>
+  <button id="btnCreate">ساخت مغز جدید</button>
+  <input id="inputCreate" type="number" value="512" min="16" max="50000" style="width:90px" title="تعداد نورون">
+  <span id="simStatus" class="badge running">در حال اجرا</span>
+</div>
+
+<div class="grid">
+  <!-- ستون ۱: آمار اصلی -->
+  <section class="card">
+    <h2>📊 آمار زنده مدل</h2>
+    <div class="stat-row"><span>تیک فعلی:</span><b id="statTick">0</b></div>
+    <div class="stat-row"><span>خون (blood):</span><b id="statBlood">0</b></div>
+    <div class="stat-row"><span>TPS فعلی:</span><b id="statTps">0</b> <small>(هدف: <span id="statTpsMin">10</span>~<span id="statTpsMax">100</span>)</small></div>
+    <div class="stat-row"><span>سرعت مدل:</span><b id="statSpeed">0x</b> <small>زمان مدل / زمان واقعی</small></div>
+    <div class="stat-row"><span>کل اسپایک:</span><b id="statSpikes">0</b></div>
+    <div class="stat-row"><span>زنده / مرده:</span><b id="statAlive">0</b> / <span id="statDead">0</span></div>
+    <div class="stat-row"><span>ignore / seizure:</span><b id="statIgnore">0</b> / <span id="statSeizure">0</span></div>
+    <hr>
+    <h3>💾 حافظه نورون‌ها (درخواست جدید)</h3>
+    <div class="stat-row"><span>معمولی:</span><b>96KB هر نورون</b></div>
+    <div class="stat-row"><span>حافظه‌ای شخصی:</span><b>96KB</b> + <span>ذخیره:</span><b>512KB</b></div>
+    <div id="memStats" class="small"></div>
+    <div class="stat-row"><span>نسبت حرفه‌ای:</span><b id="statRatio">0%</b> <small id="statMemCount"></small></div>
+    <hr>
+    <h3>🖥️ سخت‌افزار</h3>
+    <div class="stat-row"><span>فرکانس CPU:</span><b id="statCpuFreq">0 MHz</b></div>
+    <div class="stat-row"><span>درصد درگیر (بودجه):</span><b id="statCpuBudget">70%</b> | واقعی: <b id="statCpuUsage">0%</b></div>
+    <div class="progress"><div id="cpuBar" class="bar"></div></div>
+    <div class="stat-row"><span>دستگاه برتر:</span><b id="statBestDevice">CPU</b></div>
+    <div id="deviceList" class="small"></div>
+    <hr>
+    <h3>⚙️ تنظیمات سرعت</h3>
+    <label>بودجه CPU % <input id="inputCpu" type="range" min="1" max="100" value="70"> <span id="valCpu">70</span></label>
+    <label>TPS min <input id="inputTpsMin" type="number" value="10" min="1" max="1000"> </label>
+    <label>TPS max <input id="inputTpsMax" type="number" value="100" min="10" max="10000"> </label>
+    <button id="btnApplyConfig">اعمال</button>
+    <label>VM mode <input id="inputVm" type="checkbox"> <small>True=کنش به VM, False=زبان فارسی</small></label>
+  </section>
+
+  <!-- ستون ۲: خروجی و ورودی -->
+  <section class="card">
+    <h2>💬 خروجی مغز (تصمیم، نه اجبار)</h2>
+    <div id="outputDisplay" class="output-box" dir="rtl"></div>
+    <div class="stat-row"><small>آخرین ۲۰۰ حرف • خالی بودن یعنی مغز تصمیم گرفته خروجی ندهد</small></div>
+    <button id="btnClearOutput">پاک کردن نمایش</button>
+    <button id="btnCodecTest">تست bijection کدک</button>
+    <div id="codecResult" class="small"></div>
+
+    <h3>📥 ورودی خارجی (تبدیل به 0/1 و تزریق به InputRegion)</h3>
+    <textarea id="inputPersian" rows="3" placeholder="مثلاً: سلام دنیا"></textarea>
+    <button id="btnSendInput">تزریق به مغز</button>
+    <div id="inputResult" class="small"></div>
+
+    <h3>💧 تزریق مانا</h3>
+    <div class="row">
+      <input id="inputInjectId" type="number" placeholder="id نورون" style="width:100px">
+      <input id="inputInjectAmt" type="number" placeholder="مقدار" value="10" style="width:70px">
+      <button id="btnInject">تزریق به نورون</button>
+    </div>
+    <div class="row">
+      <input id="inputBloodAmt" type="number" value="20" style="width:100px">
+      <button id="btnInjectBlood">تزریق به خون</button>
+      <button id="btnSave">ذخیره .afu</button>
+    </div>
+
+    <h3>📦 ناحیه‌ها و فلگ معنادار</h3>
+    <div id="regionsList"></div>
+  </section>
+
+  <!-- ستون ۳: اتفاقات داخلی + efference -->
+  <section class="card">
+    <h2>🔄 بافر Efference Copy (خروجی که به خودش نشان داده می‌شود)</h2>
+    <div class="small">طبق سند: زیرمجموعه نورون‌ها خروجی‌ها را می‌بینند، ذخیره می‌کنند و با تاخیر ۵ تیک دوباره به مغز تزریق می‌کنند — معادل efference copy در عصب‌شناسی</div>
+    <div id="efferenceInfo" class="small"></div>
+    <div id="efferenceList" class="list"></div>
+
+    <h2>📜 اتفاقات داخلی مدل</h2>
+    <div class="small">تنظیم هیجان، تشنج، مرگ، جوانه‌زنی، تغییر معماری حافظه (هر ۲۰۰ تیک)، بازنویسی کامل (هر ۱۰۰۰ تیک)، فراموشی انتخابی</div>
+    <div id="eventLog" class="log"></div>
+    <button id="btnClearEvents">پاک کردن لاگ</button>
+
+    <h2>📈 نمودار TPS</h2>
+    <canvas id="tpsChart" width="300" height="150"></canvas>
+  </section>
+</div>
+
+<footer>
+  <div>سند می‌گوید مدل هیچ‌وقت کامل متوقف نمی‌شود مگر دخالت دستی — این داشبورد همان دخالت دستی است. // فرکانس و درصد و سرعت و اتفاقات داخلی همه اینجا</div>
+  <div><a href="/api/status" target="_blank">JSON خام وضعیت</a> | <a href="/api/codec_test" target="_blank">تست کدک</a></div>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

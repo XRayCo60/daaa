@@ -12,7 +12,7 @@
 namespace daaa {
 
 constexpr uint32_t AFU_MAGIC = 0x31465541; // "AFU1" little endian: 0x41='A',0x55='U',0x46='F',0x31='1' -> در حافظه "AFU1"
-constexpr uint32_t AFU_VERSION = 1;
+constexpr uint32_t AFU_VERSION = 2; // v2: حافظه 96KB معمولی و 512KB+96KB حافظه‌ای
 
 #pragma pack(push,1)
 struct AfuHeader {

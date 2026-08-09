@@ -81,10 +81,14 @@ bool AfuFile::save(const std::string& path,
         if (!n.input_ids.empty()) {
             out.write((char*)n.input_ids.data(), n.input_ids.size()*sizeof(uint32_t));
         }
-        // local_memory
-        uint32_t mem_size = n.local_memory.size();
-        out.write((char*)&mem_size, sizeof(mem_size));
-        if (mem_size>0) out.write((char*)n.local_memory.data(), mem_size);
+        // personal_memory (96KB برای همه)
+        uint32_t personal_size = n.personal_memory.size();
+        out.write((char*)&personal_size, sizeof(personal_size));
+        if (personal_size>0) out.write((char*)n.personal_memory.data(), personal_size);
+        // storage_memory (فقط برای MEMORY: 512KB)
+        uint32_t storage_size = n.storage_memory.size();
+        out.write((char*)&storage_size, sizeof(storage_size));
+        if (storage_size>0) out.write((char*)n.storage_memory.data(), storage_size);
     }
 
     // مناطق
@@ -136,7 +140,7 @@ bool AfuFile::load(const std::string& path,
     in.read((char*)&hdr, sizeof(hdr));
     if (!in) { error_msg = "هدر خوانده نشد"; return false; }
     if (hdr.magic != AFU_MAGIC) { error_msg = "magic اشتباه - فایل afu نیست"; return false; }
-    if (hdr.version != AFU_VERSION) { error_msg = "ورژن پشتیبانی نمی‌شود"; return false; }
+    if (hdr.version != 1 && hdr.version != 2 && hdr.version != AFU_VERSION) { error_msg = "ورژن پشتیبانی نمی‌شود: " + std::to_string(hdr.version); return false; }
 
     // چک CRC هدر
     uint32_t saved_crc = hdr.header_crc;
@@ -189,13 +193,27 @@ bool AfuFile::load(const std::string& path,
             in.read((char*)n.input_ids.data(), p.input_count*sizeof(uint32_t));
             if (!in) { error_msg = "input_ids خراب"; return false; }
         }
-        uint32_t mem_size=0;
-        in.read((char*)&mem_size, sizeof(mem_size));
-        if (!in) { error_msg = "mem_size خراب"; return false; }
-        n.local_memory.assign(mem_size,0);
-        if (mem_size>0){
-            in.read((char*)n.local_memory.data(), mem_size);
-            if (!in) { error_msg = "local_memory خراب"; return false; }
+        uint32_t personal_size=0;
+        in.read((char*)&personal_size, sizeof(personal_size));
+        if (!in) { error_msg = "personal_size خراب"; return false; }
+        n.personal_memory.assign(personal_size,0);
+        if (personal_size>0){
+            in.read((char*)n.personal_memory.data(), personal_size);
+            if (!in) { error_msg = "personal_memory خراب"; return false; }
+        }
+        // برای سازگاری با v2: اگر ورژن 2 باشد storage هم بخوان
+        if (hdr.version >= 2) {
+            uint32_t storage_size=0;
+            in.read((char*)&storage_size, sizeof(storage_size));
+            if (!in) { error_msg = "storage_size خراب"; return false; }
+            n.storage_memory.assign(storage_size,0);
+            if (storage_size>0){
+                in.read((char*)n.storage_memory.data(), storage_size);
+                if (!in) { error_msg = "storage_memory خراب"; return false; }
+            }
+        } else {
+            // v1 قدیمی: یک mem_size بود که personal بود
+            n.storage_memory.clear();
         }
 
         out_neurons.push_back(std::move(n));

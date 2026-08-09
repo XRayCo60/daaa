@@ -60,12 +60,28 @@ struct Neuron {
     std::vector<uint32_t> input_ids; // لیست ورودی‌ها (برای راحتی)
     std::vector<Synapse> outputs; // خروجی‌ها: حداکثر ۲۰ (۲۱ در نرمی)
 
-    // حافظه محلی
-    std::vector<uint8_t> local_memory; // NORMAL: 256 بایت، MEMORY: 8192
+    // حافظه محلی - طبق درخواست جدید کاربر:
+// هر نورون معمولی 96 کیلوبایت حافظه داخلی
+// هر نورون حافظه‌ای 512 کیلوبایت برای ذخیره‌سازی + 96 کیلوبایت برای شخص خودش
+    static constexpr size_t NORMAL_MEM_SIZE = 96 * 1024; // 96KB
+    static constexpr size_t MEMORY_STORAGE_SIZE = 512 * 1024; // 512KB
+    static constexpr size_t MEMORY_PERSONAL_SIZE = 96 * 1024; // 96KB
+
+    std::vector<uint8_t> personal_memory; // برای همه نورون‌ها 96KB
+    std::vector<uint8_t> storage_memory;  // فقط برای MEMORY: 512KB
+
+    // برای backward compat با کد قدیمی که local_memory صدا میزد، یک accessor می‌دهیم
+    std::vector<uint8_t>& local_memory() { return personal_memory; }
+    const std::vector<uint8_t>& local_memory() const { return personal_memory; }
 
     // برای نورون حافظه‌ای: معماری ذخیره‌سازی داخلی قابل بازنویسی هر ۲۰۰ تیک
     uint32_t storage_arch_id;
     uint32_t ticks_since_arch_change;
+    // برای بازنویسی کامل هر 1000 تیک با تابع فعلی (درخواست جدید کاربر)
+    uint32_t ticks_since_full_rewrite;
+    uint32_t full_rewrite_count;
+    // برای تصمیم حذف: نورون حافظه‌ای خودش تصمیم می‌گیرد چه چیزی پاک شود
+    uint32_t forget_counter; // چند بار فراموشی انجام داده
 
     // نرمی
     bool is_soft;
