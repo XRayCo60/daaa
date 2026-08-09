@@ -1,0 +1,8 @@
+*.o
+*.obj
+*.so
+*.a
+afu_runner
+afu_tests
+*.afu
+/tmp/
