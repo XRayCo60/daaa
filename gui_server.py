@@ -512,7 +512,7 @@ class Brain:
         return {'tick':self.tick_count,'blood':self.blood,'alive':alive,'dead':dead,'ignore':ignore,'seizure':seizure,'spikes':spikes}
 
 # ---------- HTTP Handler ----------
-brain = Brain(4096)
+brain = Brain(32768)
 brain_lock = threading.Lock()
 sim_running = True
 
