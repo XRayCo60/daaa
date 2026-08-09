@@ -757,20 +757,50 @@ if __name__=='__main__':
     print(f"مغز اولیه: {brain.config_n} نورون، حافظه‌ای: {brain.optimal_memory_count(brain.config_n)}")
     print(f"حافظه هر معمولی 96KB، حافظه‌ای 96KB+512KB")
     print(f"مدل همواره در حال فکر است - spontaneous firing فعال")
-    print(f"سرور روی http://localhost:{port}")
-    print(f"مرورگر خودکار باز می‌شود...")
     print(f"برای توقف Ctrl+C")
 
     t=threading.Thread(target=sim_loop, daemon=True)
     t.start()
 
+    # تلاش برای بایند روی پورت‌های مختلف (چون 8080 تو ویندوز بعضی وقتا PermissionError میده)
+    tried_ports = [port, 5000, 8000, 9000, 3000, 8081, 8082, 7000]
+    # اگر کاربر پورت داده، اون اول باشه، بقیه fallback
+    if port not in tried_ports:
+        tried_ports = [port] + tried_ports
+
+    server = None
+    bound_port = None
+    for p in tried_ports:
+        for host in ['0.0.0.0', '127.0.0.1']:  # اول سعی 0.0.0.0، اگر نشد 127.0.0.1
+            try:
+                print(f"تلاش برای بایند روی {host}:{p} ...")
+                server = HTTPServer((host, p), Handler)
+                bound_port = p
+                bound_host = host
+                break
+            except PermissionError as e:
+                print(f"پورت {p} روی {host} اجازه دسترسی ندارد (WinError 10013) — امتحان پورت بعدی... {e}")
+                continue
+            except OSError as e:
+                print(f"پورت {p} روی {host} در دسترس نیست ({e}) — امتحان بعدی...")
+                continue
+        if server:
+            break
+
+    if not server:
+        print("هیچ پورتی باز نشد! لطفا PowerShell را Run as Administrator باز کن یا آنتی‌ویروس/فایروال را چک کن")
+        print("دستور: netstat -ano | findstr :8080")
+        sys.exit(1)
+
+    print(f"سرور روی http://{bound_host}:{bound_port} (داخلی) و http://localhost:{bound_port} بالا اومد")
+    print(f"مرورگر خودکار باز می‌شود...")
+
     # باز کردن مرورگر
     try:
-        threading.Timer(1.5, lambda: webbrowser.open(f'http://localhost:{port}')).start()
+        threading.Timer(1.5, lambda: webbrowser.open(f'http://localhost:{bound_port}')).start()
     except:
         pass
 
-    server=HTTPServer(('0.0.0.0',port), Handler)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
