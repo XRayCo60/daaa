@@ -382,23 +382,49 @@ class Brain:
             self.last_tps_tick=self.tick_count
 
     def collect_output_pattern(self, spiked_ids):
-        # آیا OutputRegion فایر کرده؟
+        # آیا OutputRegion فایر کرده؟ خروجی تصمیم مغز است، نه اجبار
         out_region=None
         for r in self.regions:
             if 'Output' in r['name']:
                 out_region=r
                 break
-        if not out_region: return 255
-        cnt=0
-        out_set=set(out_region['ids'])
-        for sid in spiked_ids:
-            if sid in out_set:
-                cnt+=1
-        if cnt==0:
+        if not out_region:
             return 255
-        pat=(cnt + (self.tick_count % 64)) % 64
-        if cnt%2==0:
-            pat=(pat ^ (self.tick_count & 0x3F)) & 0x3F
+        out_ids = out_region['ids']
+        if not out_ids:
+            return 255
+        # اگر هیچ خروجی اسپایک نکرده، خروجی نده (تصمیم به سکوت)
+        out_set = set(out_ids)
+        spiked_out = [sid for sid in spiked_ids if sid in out_set]
+        if not spiked_out:
+            return 255
+
+        # 6 گروه برای 6 بیت - هر گروه نماینده یک بیت
+        # این باعث میشه الگو مستقیم از فعالیت نورونی بیاد، نه از شمارش + تیک ساده
+        # تقسیم خروجی‌ها به 6 گروه
+        n_groups = 6
+        group_size = max(1, len(out_ids) // n_groups)
+        bits = []
+        for g in range(n_groups):
+            start = g * group_size
+            end = start + group_size if g < n_groups-1 else len(out_ids)
+            group_ids = set(out_ids[start:end])
+            # اگر حتی یک نورون در این گروه فایر کرده، بیت 1
+            fired = any(sid in group_ids for sid in spiked_out)
+            bits.append(1 if fired else 0)
+
+        # اگر همه صفر بود (نادر)، باز هم سکوت معنی میده؟ ولی برای تنوع حداقل یک بیت را بر اساس مجموع اسپایک‌ها ست کن
+        if sum(bits)==0:
+            # اگر اسپایک خروجی داشتیم ولی هیچ گروه کامل نخورده (چون گروه‌بندی)، یک بیت تصادفی از روی هش اسپایک‌ها
+            # از جمع idها یک الگو بساز
+            h = sum(spiked_out) & 0x3F
+            # تبدیل به بیت‌ها
+            bits = [(h >> (5-i)) & 1 for i in range(6)]
+
+        # بیت‌ها به پترن 6 بیتی
+        pat = 0
+        for b in bits:
+            pat = (pat << 1) | (b & 1)
         return pat
 
     def handle_memory(self):
@@ -550,6 +576,25 @@ class Handler(BaseHTTPRequestHandler):
             body_json={}
             body_str=body_bytes.decode('utf-8', errors='ignore') if body_bytes else ''
 
+        def safe_int(v, default=0):
+            if v is None:
+                return default
+            try:
+                if isinstance(v, str) and v.strip()=='':
+                    return default
+                return int(float(v))
+            except:
+                return default
+        def safe_float(v, default=0.0):
+            if v is None:
+                return default
+            try:
+                if isinstance(v, str) and v.strip()=='':
+                    return default
+                return float(v)
+            except:
+                return default
+
         def json_resp(obj):
             data=json.dumps(obj, ensure_ascii=False).encode('utf-8')
             self.send_response(200)
@@ -564,11 +609,21 @@ class Handler(BaseHTTPRequestHandler):
         if path=='/api/status' and method=='GET':
             with brain_lock:
                 stats=brain.get_stats()
-                # cpu freq
+                # cpu freq و usage واقعی
                 freq=2600.0
+                cpu_percent=0.0
                 try:
                     import psutil
-                    freq=psutil.cpu_freq().current if psutil.cpu_freq() else 2600
+                    # اولین بار cpu_percent 0 میده، پس interval کوچک
+                    # برای اینکه دقیق باشه، از process استفاده می‌کنیم
+                    proc=psutil.Process()
+                    # اگر بار اول صفر بود، یکبار صدا بزن
+                    cpu_percent = proc.cpu_percent(interval=0.1)
+                    if cpu_percent==0:
+                        cpu_percent = psutil.cpu_percent(interval=0.1)
+                    freq_obj=psutil.cpu_freq()
+                    if freq_obj:
+                        freq=freq_obj.current
                 except:
                     try:
                         with open('/proc/cpuinfo') as f:
@@ -576,7 +631,10 @@ class Handler(BaseHTTPRequestHandler):
                                 if 'cpu MHz' in line:
                                     freq=float(line.split(':')[1].strip())
                                     break
-                    except: pass
+                    except:
+                        pass
+                    # تخمین از tps
+                    cpu_percent = min(100.0, (brain.tps / max(1.0,brain.tps_max))*100*0.7 + brain.cpu_budget*0.3)
                 # memory stats
                 normal_total=0
                 mem_personal=0
@@ -593,9 +651,7 @@ class Handler(BaseHTTPRequestHandler):
                         total_forget+=n.forget_counter
                     else:
                         normal_total+=len(n.personal_memory)
-                # events last 50
                 ev=list(brain.event_log)[-50:]
-                # efference delayed
                 delayed=[e for e in brain.efference if brain.tick_count >= e['tick']+5]
                 recent=brain.get_recent_output(200)
                 obj={
@@ -611,7 +667,7 @@ class Handler(BaseHTTPRequestHandler):
                     'tps_max':brain.tps_max,
                     'cpu_budget':brain.cpu_budget,
                     'cpu_freq_mhz':freq,
-                    'cpu_usage_percent':70, # ساده
+                    'cpu_usage_percent':cpu_percent,
                     'model_speed_x':brain.tps,
                     'always_thinking':True,
                     'vm_mode':brain.vm_mode,
@@ -620,7 +676,7 @@ class Handler(BaseHTTPRequestHandler):
                     'events':[{'tick':e['tick'],'type':e['type'],'message':e['message'],'neuron_id':e['neuron_id']} for e in ev],
                     'efference_count':len(delayed),
                     'efference':[{'tick':e['tick'],'pattern':e['pattern'],'char':e['char']} for e in delayed[-20:]],
-                    'devices':[{'name':'CPU (Python compat)','is_cuda':False,'available':True,'reason':'همیشه فعال - Python نسخه سازگار با ویندوز'},{'name':'CUDA (Dormant)','is_cuda':True,'available':False,'reason':'روی این لپتاپ Intel HD 3000 فعال نیست - سیستم سهیم کردن کامل'}],
+                    'devices':[{'name':'CPU (Python compat)','is_cuda':False,'available':True,'reason':f'همیشه فعال - استفاده واقعی {cpu_percent:.1f}% - Python نسخه ویندوز'},{'name':'CUDA (Dormant)','is_cuda':True,'available':False,'reason':'روی این لپتاپ Intel HD 3000 فعال نیست - سیستم سهیم کردن کامل'}],
                     'memory_stats':{
                         'normal_total_kb':normal_total//1024,
                         'memory_personal_total_kb':mem_personal//1024,
@@ -640,8 +696,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
         if path=='/api/tick' and method=='POST':
-            n=body_json.get('n',1)
-            n=int(n)
+            n=safe_int(body_json.get('n',1),1)
+            n=max(1,min(10000,n))
             with brain_lock:
                 for _ in range(n):
                     brain.tick()
@@ -650,56 +706,57 @@ class Handler(BaseHTTPRequestHandler):
         if path=='/api/input' and method=='POST':
             text=body_json.get('text','')
             if not text and body_str:
-                # سعی parse ساده
-                try:
-                    # ممکن متن فارسی مستقیم باشه
-                    text=body_str
-                except: pass
+                text=body_str
             with brain_lock:
                 bits=brain.inject_text(text)
                 back=codec.bits_to_persian(bits)
             json_resp({'ok':True,'injected':text,'bits':len(bits),'verify':back})
             return
         if path=='/api/inject_blood' and method=='POST':
-            amt=float(body_json.get('amount',5))
+            amt=safe_float(body_json.get('amount',5),5.0)
             with brain_lock:
                 brain.blood+=amt
+                brain.push_event('inject_blood', f'تزریق خون {amt}', 0)
             json_resp({'ok':True})
             return
         if path=='/api/inject' and method=='POST':
-            nid=int(body_json.get('id',0))
-            amt=float(body_json.get('amount',10))
+            nid=safe_int(body_json.get('id',0),0)
+            amt=safe_float(body_json.get('amount',10),10.0)
             with brain_lock:
                 if 0<=nid<len(brain.neurons):
                     brain.neurons[nid].mana+=amt
+                    brain.push_event('inject', f'تزریق مانا {amt} به نورون {nid}', nid)
             json_resp({'ok':True})
             return
         if path=='/api/region_mark' and method=='POST':
-            name=body_json.get('name','')
+            name=body_json.get('name','') or ''
             meaningful=bool(body_json.get('meaningful',False))
-            note=body_json.get('note','')
+            note=body_json.get('note','') or ''
             with brain_lock:
                 for r in brain.regions:
                     if r['name']==name or name in r['name']:
                         r['meaningful']=meaningful
                         r['note']=note
                         break
+                brain.push_event('region_mark', f'ناحیه {name} معنادار={meaningful}', 0)
             json_resp({'ok':True})
             return
         if path=='/api/config' and method=='POST':
             with brain_lock:
-                if 'cpu_budget' in body_json:
-                    brain.cpu_budget=float(body_json['cpu_budget'])
-                if 'tps_min' in body_json:
-                    brain.tps_min=float(body_json['tps_min'])
-                if 'tps_max' in body_json:
-                    brain.tps_max=float(body_json['tps_max'])
+                if 'cpu_budget' in body_json and body_json.get('cpu_budget') is not None:
+                    brain.cpu_budget=safe_float(body_json.get('cpu_budget'), brain.cpu_budget)
+                if 'tps_min' in body_json and body_json.get('tps_min') is not None:
+                    brain.tps_min=safe_float(body_json.get('tps_min'), brain.tps_min)
+                if 'tps_max' in body_json and body_json.get('tps_max') is not None:
+                    brain.tps_max=safe_float(body_json.get('tps_max'), brain.tps_max)
                 if 'vm_mode' in body_json:
-                    brain.vm_mode=bool(body_json['vm_mode'])
+                    brain.vm_mode=bool(body_json.get('vm_mode'))
             json_resp({'ok':True})
             return
         if path=='/api/sim' and method=='POST':
             running=body_json.get('running',True)
+            if running is None:
+                running=True
             sim_running=bool(running)
             json_resp({'ok':True,'running':sim_running})
             return
@@ -713,7 +770,7 @@ class Handler(BaseHTTPRequestHandler):
             json_resp({'ok':True,'path':'model.afu (Python نسخه ذخیره ساده نشده)'})
             return
         if path=='/api/create' and method=='POST':
-            n=int(body_json.get('neurons',512))
+            n=safe_int(body_json.get('neurons',512),512)
             n=max(16,min(100000,n))
             with brain_lock:
                 brain.config_n=n
