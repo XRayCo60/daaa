@@ -199,14 +199,37 @@ void Brain::propagateSpikes(const std::vector<uint32_t>& spiked_ids) {
 
 uint8_t Brain::collectOutputPattern(const std::vector<uint32_t>& spiked_ids) {
     Region* out_r = findRegion("Output-خروجی-زبان");
-    if (!out_r) return 255;
-    int count_out_spiked = 0;
+    if (!out_r || out_r->neuron_ids.empty()) return 255;
+    // خروجی تصمیم مغز است - فقط اگر OutputRegion فایر کرده
+    std::vector<uint32_t> spiked_out;
+    spiked_out.reserve(spiked_ids.size());
+    // برای سرعت، یک set کوچک از spiked بساز (چون spiked_ids کم تعداد است)
     for (auto sid : spiked_ids) {
-        for (auto oid : out_r->neuron_ids) if (oid == sid) { count_out_spiked++; break; }
+        for (auto oid : out_r->neuron_ids) if (oid == sid) { spiked_out.push_back(sid); break; }
     }
-    if (count_out_spiked == 0) return 255;
-    uint8_t pat = (count_out_spiked + (current_tick_ % 64)) % 64;
-    if (count_out_spiked % 2 == 0) pat = (pat ^ (current_tick_ & 0x3F)) & 0x3F;
+    if (spiked_out.empty()) return 255;
+
+    // 6 گروه برای 6 بیت - هر گروه یک بیت از فعالیت واقعی
+    const size_t n_groups = 6;
+    size_t group_size = std::max<size_t>(1, out_r->neuron_ids.size() / n_groups);
+    uint8_t pat = 0;
+    for (size_t g = 0; g < n_groups; ++g) {
+        size_t start = g * group_size;
+        size_t end = (g == n_groups-1) ? out_r->neuron_ids.size() : start + group_size;
+        bool fired = false;
+        for (size_t i = start; i < end && i < out_r->neuron_ids.size(); ++i) {
+            uint32_t oid = out_r->neuron_ids[i];
+            for (auto sid : spiked_out) if (sid == oid) { fired = true; break; }
+            if (fired) break;
+        }
+        pat = (pat << 1) | (fired ? 1 : 0);
+    }
+    // اگر همه صفر (نادر چون spiked_out داریم ولی گروه‌بندی نخورده)، از هش جمع idها
+    if (pat == 0) {
+        uint32_t h = 0;
+        for (auto sid : spiked_out) h += sid;
+        pat = h & 0x3F;
+    }
     return pat;
 }
 
