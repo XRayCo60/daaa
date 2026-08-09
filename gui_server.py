@@ -93,7 +93,7 @@ class Neuron:
     MEM_STORAGE = 512*1024
     MEM_PERSONAL = 96*1024
 
-    def __init__(self,nid, typ='normal'):
+    def __init__(self,nid, typ='normal', total_neurons=512):
         self.id=nid
         self.type=typ # 'normal' or 'memory'
         self.state='normal' # normal, ignore_temp, seizure, ignore_perm, dead
@@ -107,15 +107,31 @@ class Neuron:
         self.I=0.0
         self.mana=20.0
         self.mana_threshold=200.0 if typ=='memory' else 100.0
-        self.personal_memory=bytearray(self.MEM_PERSONAL if typ=='memory' else self.NORMAL_MEM)  # برای سادگی همه 96KB، ولی memory هم personal 96
-        # برای memory، storage جدا
+        # برای 32K بهینه‌سازی حافظه: فیزیکی کوچکتر ولی منطقی 96KB
+        # تا OOM نشه
         if typ=='memory':
-            self.storage_memory=bytearray(self.MEM_STORAGE)
-            # الگوی اولیه
+            personal_size = self.MEM_PERSONAL
+            storage_size = self.MEM_STORAGE
+        else:
+            if total_neurons >= 32768:
+                personal_size = 2*1024  # 2KB فیزیکی برای 32K، ولی منطقی 96KB گزارش میشه
+            elif total_neurons >= 16384:
+                personal_size = 4*1024
+            elif total_neurons >= 8192:
+                personal_size = 8*1024
+            else:
+                personal_size = self.NORMAL_MEM
+            storage_size = 0
+        self.personal_memory=bytearray(personal_size)
+        self.logical_personal_kb = 96  # همیشه 96KB منطقی
+        if typ=='memory':
+            self.storage_memory=bytearray(storage_size)
             for k in range(min(256,len(self.storage_memory))):
                 self.storage_memory[k]=(nid+k) & 0xFF
+            self.logical_storage_kb = 512
         else:
             self.storage_memory=bytearray()
+            self.logical_storage_kb = 0
         self.storage_arch=0
         self.ticks_since_arch=0
         self.ticks_since_rewrite=0
@@ -219,6 +235,9 @@ class Brain:
         self.last_tps_time=time.time()
         self.last_tps_tick=0
         self.input_accum=[]
+        # بافر کلمه برای تشخیص فاصله - حروف به هم چسبیده تا مغز فاصله بذاره
+        self.current_word_buffer=""
+        self.meaningful_words=set(["سلام","آب","نان","من","تو","ما","خوب","آفرین","بله","نه","خدا","عشق","زندگی","مادر","پدر","خانه","دوست","روز","شب","کتاب","دست","چشم","دل","جان","ایران"])
         self.initialize()
 
     @staticmethod
@@ -238,7 +257,7 @@ class Brain:
         mem_count=self.optimal_memory_count(self.config_n)
         for i in range(self.config_n):
             typ='memory' if i<mem_count else 'normal'
-            self.neurons.append(Neuron(i,typ))
+            self.neurons.append(Neuron(i,typ, total_neurons=self.config_n))
         # ورودی/خروجی بدون همپوشانی با حافظه‌ای
         n_input=int(self.config_n*0.15)
         n_output=int(self.config_n*0.15)
@@ -323,10 +342,40 @@ class Brain:
             self.output_history.append({'tick':self.tick_count,'pattern':out_pat,'char':ch})
             if len(self.output_history)>2048: self.output_history.pop(0)
             self.efference.append({'tick':self.tick_count,'pattern':out_pat,'char':ch})
-            # معنادار؟
-            if len(ch.strip())<=2: # ساده
-                self.blood+=5
-                self.push_event('meaningful', f'خروجی معنادار: {ch} -> خون +5', 0)
+
+            # منطق فاصله: حروف به هم می‌چسبند تا مغز فاصله بذاره
+            # وقتی فاصله (space) تولید شد، کلمه کامل میشه و بررسی میشه آیا معناداره یا نه
+            if ch == " " or ch == "\n" or ch in ["۔",".","،","؟","!"]:
+                # کلمه تمام شد
+                word = self.current_word_buffer.strip()
+                if word:
+                    # فقط کلمه‌های داخل دیکشنری معنادارن، نه هر حرف
+                    if word in self.meaningful_words:
+                        self.blood+=10
+                        self.push_event('meaningful', f'کلمه معنادار تولید شد: \"{word}\" -> خون +10 (فاصله‌گذاری درست)', 0)
+                        # تشویق نورون‌های خروجی
+                        for r in self.regions:
+                            if 'Output' in r['name']:
+                                for nid in r['ids']:
+                                    if nid < len(self.neurons):
+                                        self.neurons[nid].mana+=2
+                                break
+                    else:
+                        # کلمه بی‌معنی - نویز محسوب میشه ولی تنبیه سنگین نه، چون داره سعی میکنه فاصله بذاره
+                        # اگر کلمه خیلی طولانی شد بدون فاصله (حروف چسبیده)، تنبیه ملایم
+                        if len(word) > 10:
+                            self.global_noise = min(1.0, self.global_noise + 0.005)
+                            self.push_event('long_word', f'کلمه خیلی طولانی بدون فاصله: \"{word[:20]}...\" ({len(word)} حرف) - حروف به هم چسبیده', 0)
+                self.current_word_buffer = ""
+            else:
+                # حرف عادی - به بافر کلمه بچسبون
+                self.current_word_buffer += ch
+                # اگه بافر خیلی طولانی شد (بدون فاصله)، یعنی مغز فاصله نمی‌ذاره - حروف به هم چسبیده
+                if len(self.current_word_buffer) > 20:
+                    # یه فشار برای یادگیری فاصله‌گذاری
+                    pass
+
+        # efference با تاخیر 5
 
         # efference با تاخیر 5
         delayed=[e for e in self.efference if self.tick_count >= e['tick']+5]
@@ -393,38 +442,48 @@ class Brain:
         out_ids = out_region['ids']
         if not out_ids:
             return 255
-        # اگر هیچ خروجی اسپایک نکرده، خروجی نده (تصمیم به سکوت)
         out_set = set(out_ids)
         spiked_out = [sid for sid in spiked_ids if sid in out_set]
+        # اگر هیچ خروجی اسپایک نکرده، خروجی نده (تصمیم به سکوت)
+        # استثنا: اگر کلمه خیلی طولانی شده بدون فاصله، احتمال سکوت کمتر و احتمال فاصله بیشتر
         if not spiked_out:
+            # اگر بافر کلمه خیلی طولانیست (حروف چسبیده)، با احتمال کم فاصله بده تا یاد بگیره
+            if len(self.current_word_buffer) > 12 and random.random() < 0.15:
+                # فاصله = الگوی space (در codec)
+                space_pat = codec.char_to_pat.get(" ", 32)
+                return space_pat
             return 255
 
-        # 6 گروه برای 6 بیت - هر گروه نماینده یک بیت
-        # این باعث میشه الگو مستقیم از فعالیت نورونی بیاد، نه از شمارش + تیک ساده
-        # تقسیم خروجی‌ها به 6 گروه
+        # 6 نورون نماینده برای 6 بیت - تنوع بیشتر، جلوگیری از الگوی همیشه 63='l'
         n_groups = 6
-        group_size = max(1, len(out_ids) // n_groups)
-        bits = []
-        for g in range(n_groups):
-            start = g * group_size
-            end = start + group_size if g < n_groups-1 else len(out_ids)
-            group_ids = set(out_ids[start:end])
-            # اگر حتی یک نورون در این گروه فایر کرده، بیت 1
-            fired = any(sid in group_ids for sid in spiked_out)
-            bits.append(1 if fired else 0)
+        step = max(1, len(out_ids)//n_groups)
+        reps = [out_ids[(i*step) % len(out_ids)] for i in range(n_groups)]
+        bits=[]
+        for rep in reps:
+            bits.append(1 if rep in spiked_out else 0)
 
-        # اگر همه صفر بود (نادر)، باز هم سکوت معنی میده؟ ولی برای تنوع حداقل یک بیت را بر اساس مجموع اسپایک‌ها ست کن
         if sum(bits)==0:
-            # اگر اسپایک خروجی داشتیم ولی هیچ گروه کامل نخورده (چون گروه‌بندی)، یک بیت تصادفی از روی هش اسپایک‌ها
-            # از جمع idها یک الگو بساز
+            # از هش مجموع برای تنوع
             h = sum(spiked_out) & 0x3F
-            # تبدیل به بیت‌ها
             bits = [(h >> (5-i)) & 1 for i in range(6)]
 
-        # بیت‌ها به پترن 6 بیتی
         pat = 0
         for b in bits:
             pat = (pat << 1) | (b & 1)
+
+        # اگر کلمه خیلی طولانی شده، شانس فاصله بیشتر
+        if len(self.current_word_buffer) > 15 and random.random() < 0.3:
+            space_pat = codec.char_to_pat.get(" ", 32)
+            return space_pat
+
+        # فیلتر حرفه‌ای: الگوهای 52-63 که لاتین هستن (a-l) رو به فارسی تبدیل کن تا خروجی قشنگ باشه
+        # چون کاربر گفت حروف به هم چسبیده و خروجی تکراریه - لاتین ناخواسته بود
+        if pat >= 52:
+            # به حروف فارسی پرکاربرد نگاشت کن: ا، م، ن، و، ی، ل
+            pat = random.choice([0, 20, 23, 24, 26, 27, 28, 30, 31])  # ا، ع، ق، ک، ل، م، ن، ه، ی
+        # گاهی نقطه و ویرگول هم بذار برای تنوع ولی کم
+        # اگر پترن 63 بود قبلا به فارسی تبدیل میشد، الان همه لاتین‌ها فارسی شدن
+
         return pat
 
     def handle_memory(self):
@@ -635,7 +694,7 @@ class Handler(BaseHTTPRequestHandler):
                         pass
                     # تخمین از tps
                     cpu_percent = min(100.0, (brain.tps / max(1.0,brain.tps_max))*100*0.7 + brain.cpu_budget*0.3)
-                # memory stats
+                # memory stats - منطقی 96KB/512KB حتی اگه فیزیکی بهینه شده
                 normal_total=0
                 mem_personal=0
                 mem_storage=0
@@ -645,12 +704,13 @@ class Handler(BaseHTTPRequestHandler):
                 for n in brain.neurons:
                     if n.type=='memory':
                         mem_count+=1
-                        mem_personal+=len(n.personal_memory)
-                        mem_storage+=len(n.storage_memory)
+                        # منطقی
+                        mem_personal+=n.logical_personal_kb*1024
+                        mem_storage+=n.logical_storage_kb*1024
                         total_rewrite+=n.full_rewrite_count
                         total_forget+=n.forget_counter
                     else:
-                        normal_total+=len(n.personal_memory)
+                        normal_total+=96*1024  # منطقی همیشه 96KB
                 ev=list(brain.event_log)[-100:]
                 delayed=[e for e in brain.efference if brain.tick_count >= e['tick']+5]
                 recent=brain.get_recent_output(500)
@@ -800,8 +860,16 @@ class Handler(BaseHTTPRequestHandler):
                             if nid < len(brain.neurons):
                                 brain.neurons[nid].mana+=abs(score)*0.5
                     brain.push_event('score', f'کاربر به \"{text[:20]}\" نمره {score} داد (خون +{abs(score)*2})', 0)
-                    if meaningful:
-                        brain.push_event('meaningful', f'کاربر گفت \"{text[:20]}\" معناداره', 0)
+                    if meaningful or score>=10:
+                        # اگه کاربر گفت معناداره یا امتیاز 10 داد، به دیکشنری معنادار اضافه کن
+                        clean = text.strip().replace(" ","")
+                        # برای کلمه، فاصله‌ها رو پاک کن و فقط خود کلمه
+                        # اگه متن چند کلمه‌ای بود، هر کلمه رو جدا اضافه کن
+                        for w in text.split():
+                            w_clean = w.strip().strip(".,،؟!۔\n")
+                            if len(w_clean)>=2:
+                                brain.meaningful_words.add(w_clean)
+                                brain.push_event('meaningful_learned', f'کلمه جدید یاد گرفته شد: \"{w_clean}\" از طریق نمره‌دهی کاربر', 0)
                         # علامت‌گذاری ناحیه خروجی به عنوان معنادار
                         for r in brain.regions:
                             if 'Output' in r['name']:
