@@ -3,106 +3,197 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AFU مغز مصنوعی — داشبورد گرافیکی</title>
+<title>AFU — مغز مصنوعی حرفه‌ای (4096 نورون)</title>
 <link rel="stylesheet" href="style.css">
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
-<header>
-  <h1>🧠 AFU — مغز مصنوعی (شبیه‌ساز مدار عصبی)</h1>
-  <div class="sub">مدل همواره در حال فکر است — spontaneous firing فعال، حتی بدون ورودی • خروجی یک تصمیم است نه اجبار</div>
+<header class="main-header">
+  <div class="header-left">
+    <div class="logo">🧠 AFU</div>
+    <div class="title">
+      <h1>مغز مصنوعی — شبیه‌ساز مدار عصبی</h1>
+      <p>4096 نورون (حافظه‌ای حرفه‌ای) • همواره در حال فکر • خروجی تصمیم</p>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="live-dot"><span></span> LIVE</div>
+    <div class="tick-big" id="headerTick">0</div>
+    <div class="tps-big" id="headerTps">0 TPS</div>
+  </div>
 </header>
 
-<div class="top-controls">
-  <button id="btnToggleSim">⏸ توقف شبیه‌سازی</button>
-  <button id="btnTick">تک تیک</button>
-  <button id="btnCreate">ساخت مغز جدید</button>
-  <input id="inputCreate" type="number" value="512" min="16" max="50000" style="width:90px" title="تعداد نورون">
-  <span id="simStatus" class="badge running">در حال اجرا</span>
+<div class="toolbar">
+  <div class="toolbar-group">
+    <button id="btnToggleSim" class="btn primary">⏸ توقف</button>
+    <button id="btnTick" class="btn">⚡ تک تیک</button>
+    <button id="btnClearOutput" class="btn ghost">پاک نمایش</button>
+  </div>
+  <div class="toolbar-group">
+    <label>نورون: <input id="inputCreate" type="number" value="4096" min="16" max="50000" step="256"></label>
+    <button id="btnCreate" class="btn">ساخت مغز جدید</button>
+    <span id="simStatus" class="status running">در حال فکر...</span>
+  </div>
+  <div class="toolbar-group">
+    <span>CPU <b id="toolbarCpu">0%</b></span>
+    <span>خون <b id="toolbarBlood">0</b></span>
+    <span>حافظه <b id="toolbarMem">0 MB</b></span>
+  </div>
 </div>
 
-<div class="grid">
-  <!-- ستون ۱: آمار اصلی -->
-  <section class="card">
-    <h2>📊 آمار زنده مدل</h2>
-    <div class="stat-row"><span>تیک فعلی:</span><b id="statTick">0</b></div>
-    <div class="stat-row"><span>خون (blood):</span><b id="statBlood">0</b></div>
-    <div class="stat-row"><span>TPS فعلی:</span><b id="statTps">0</b> <small>(هدف: <span id="statTpsMin">10</span>~<span id="statTpsMax">100</span>)</small></div>
-    <div class="stat-row"><span>سرعت مدل:</span><b id="statSpeed">0x</b> <small>زمان مدل / زمان واقعی</small></div>
-    <div class="stat-row"><span>کل اسپایک:</span><b id="statSpikes">0</b></div>
-    <div class="stat-row"><span>زنده / مرده:</span><b id="statAlive">0</b> / <span id="statDead">0</span></div>
-    <div class="stat-row"><span>ignore / seizure:</span><b id="statIgnore">0</b> / <span id="statSeizure">0</span></div>
-    <hr>
-    <h3>💾 حافظه نورون‌ها (درخواست جدید)</h3>
-    <div class="stat-row"><span>معمولی:</span><b>96KB هر نورون</b></div>
-    <div class="stat-row"><span>حافظه‌ای شخصی:</span><b>96KB</b> + <span>ذخیره:</span><b>512KB</b></div>
-    <div id="memStats" class="small"></div>
-    <div class="stat-row"><span>نسبت حرفه‌ای:</span><b id="statRatio">0%</b> <small id="statMemCount"></small></div>
-    <hr>
-    <h3>🖥️ سخت‌افزار</h3>
-    <div class="stat-row"><span>فرکانس CPU:</span><b id="statCpuFreq">0 MHz</b></div>
-    <div class="stat-row"><span>درصد درگیر (بودجه):</span><b id="statCpuBudget">70%</b> | واقعی: <b id="statCpuUsage">0%</b></div>
-    <div class="progress"><div id="cpuBar" class="bar"></div></div>
-    <div class="stat-row"><span>دستگاه برتر:</span><b id="statBestDevice">CPU</b></div>
-    <div id="deviceList" class="small"></div>
-    <hr>
-    <h3>⚙️ تنظیمات سرعت</h3>
-    <label>بودجه CPU % <input id="inputCpu" type="range" min="1" max="100" value="70"> <span id="valCpu">70</span></label>
-    <label>TPS min <input id="inputTpsMin" type="number" value="10" min="1" max="1000"> </label>
-    <label>TPS max <input id="inputTpsMax" type="number" value="100" min="10" max="10000"> </label>
-    <button id="btnApplyConfig">اعمال</button>
-    <label>VM mode <input id="inputVm" type="checkbox"> <small>True=کنش به VM, False=زبان فارسی</small></label>
-  </section>
+<div class="main-grid">
+  <!-- ستون چپ: کنترل -->
+  <aside class="panel control-panel">
+    <section>
+      <h2>⚙️ کنترل سرعت و بودجه</h2>
+      <div class="control-item">
+        <label>بودجه CPU % <span id="valCpu">70</span></label>
+        <input id="inputCpu" type="range" min="1" max="100" value="70" class="slider">
+        <div class="progress thin"><div id="cpuBar" class="bar"></div></div>
+      </div>
+      <div class="control-row">
+        <label>TPS min <input id="inputTpsMin" type="number" value="10"></label>
+        <label>TPS max <input id="inputTpsMax" type="number" value="100"></label>
+        <button id="btnApplyConfig" class="btn small">اعمال</button>
+      </div>
+      <label class="check"><input id="inputVm" type="checkbox"> VM mode (کنش به ترمینال)</label>
+    </section>
 
-  <!-- ستون ۲: خروجی و ورودی -->
-  <section class="card">
-    <h2>💬 خروجی مغز (تصمیم، نه اجبار)</h2>
-    <div id="outputDisplay" class="output-box" dir="rtl"></div>
-    <div class="stat-row"><small>آخرین ۲۰۰ حرف • خالی بودن یعنی مغز تصمیم گرفته خروجی ندهد</small></div>
-    <button id="btnClearOutput">پاک کردن نمایش</button>
-    <button id="btnCodecTest">تست bijection کدک</button>
-    <div id="codecResult" class="small"></div>
+    <section>
+      <h2>📥 ورودی خارجی (0/1)</h2>
+      <textarea id="inputPersian" rows="3" placeholder="متن فارسی بنویس، مثلا: سلام دنیا"></textarea>
+      <div class="row gap">
+        <button id="btnSendInput" class="btn primary">تزریق به InputRegion</button>
+        <button id="btnCodecTest" class="btn ghost">تست bijection</button>
+      </div>
+      <div id="inputResult" class="hint"></div>
+      <div id="codecResult" class="hint"></div>
+    </section>
 
-    <h3>📥 ورودی خارجی (تبدیل به 0/1 و تزریق به InputRegion)</h3>
-    <textarea id="inputPersian" rows="3" placeholder="مثلاً: سلام دنیا"></textarea>
-    <button id="btnSendInput">تزریق به مغز</button>
-    <div id="inputResult" class="small"></div>
+    <section>
+      <h2>💧 مانا و ذخیره</h2>
+      <div class="row">
+        <input id="inputInjectId" type="number" placeholder="ID نورون" style="width:90px">
+        <input id="inputInjectAmt" type="number" value="10" style="width:70px">
+        <button id="btnInject" class="btn small">تزریق نورون</button>
+      </div>
+      <div class="row">
+        <input id="inputBloodAmt" type="number" value="20" style="width:90px">
+        <button id="btnInjectBlood" class="btn small">تزریق خون</button>
+        <button id="btnSave" class="btn small">💾 Save .afu</button>
+      </div>
+    </section>
 
-    <h3>💧 تزریق مانا</h3>
-    <div class="row">
-      <input id="inputInjectId" type="number" placeholder="id نورون" style="width:100px">
-      <input id="inputInjectAmt" type="number" placeholder="مقدار" value="10" style="width:70px">
-      <button id="btnInject">تزریق به نورون</button>
+    <section>
+      <h2>📦 ناحیه‌ها - معنادار</h2>
+      <div id="regionsList" class="regions"></div>
+    </section>
+
+    <section>
+      <h2>💾 آمار حافظه (96KB/512KB)</h2>
+      <div id="memStats" class="stats-box"></div>
+      <div class="stat-row"><span>نسبت حرفه‌ای:</span><b id="statRatio">0%</b> <small id="statMemCount"></small></div>
+      <div class="stat-row"><span>بازسازی کامل:</span><b id="statRewrite">0</b></div>
+      <div class="stat-row"><span>فراموشی:</span><b id="statForget">0</b></div>
+    </section>
+  </aside>
+
+  <!-- ستون وسط: خروجی قابل انتخاب -->
+  <main class="panel output-panel">
+    <div class="panel-header">
+      <h2>💬 خروجی مغز — قابل انتخاب و نمره‌دهی (تصمیم، نه اجبار)</h2>
+      <div class="actions">
+        <button id="btnSelectAll" class="btn ghost small">انتخاب همه</button>
+        <button id="btnScoreSelected" class="btn primary small">نمره‌دهی به انتخاب</button>
+        <span class="hint">روی هر حرف کلیک کن یا درگ کن و نمره بده</span>
+      </div>
     </div>
-    <div class="row">
-      <input id="inputBloodAmt" type="number" value="20" style="width:100px">
-      <button id="btnInjectBlood">تزریق به خون</button>
-      <button id="btnSave">ذخیره .afu</button>
+
+    <div id="outputDisplay" class="output-display" dir="rtl"></div>
+
+    <div id="selectionInfo" class="selection-bar hidden">
+      <span>انتخاب: <b id="selText"></b> (<span id="selCount">0</span> حرف)</span>
+      <div class="score-buttons">
+        <button class="btn score" data-score="1">+1 خوب</button>
+        <button class="btn score" data-score="5">+5 عالی</button>
+        <button class="btn score" data-score="10">+10 فوق‌العاده</button>
+        <button class="btn score negative" data-score="-5">-5 بد</button>
+        <button class="btn ghost" id="btnMarkMeaning">✅ این معناداره</button>
+        <button class="btn ghost" id="btnClearSel">✖ لغو</button>
+      </div>
     </div>
 
-    <h3>📦 ناحیه‌ها و فلگ معنادار</h3>
-    <div id="regionsList"></div>
-  </section>
+    <div class="panel-header" style="margin-top:16px">
+      <h3>📜 خروجی خام با تیک و الگو (قابل کلیک)</h3>
+    </div>
+    <div id="outputRaw" class="raw-list"></div>
+  </main>
 
-  <!-- ستون ۳: اتفاقات داخلی + efference -->
-  <section class="card">
-    <h2>🔄 بافر Efference Copy (خروجی که به خودش نشان داده می‌شود)</h2>
-    <div class="small">طبق سند: زیرمجموعه نورون‌ها خروجی‌ها را می‌بینند، ذخیره می‌کنند و با تاخیر ۵ تیک دوباره به مغز تزریق می‌کنند — معادل efference copy در عصب‌شناسی</div>
-    <div id="efferenceInfo" class="small"></div>
-    <div id="efferenceList" class="list"></div>
+  <!-- ستون راست: آمار و اتفاقات -->
+  <aside class="panel stats-panel">
+    <section>
+      <h2>📊 آمار زنده (4096 نورون)</h2>
+      <div class="stats-grid">
+        <div class="stat-card"><span>تیک</span><b id="statTick">0</b></div>
+        <div class="stat-card"><span>خون</span><b id="statBlood">0</b></div>
+        <div class="stat-card"><span>TPS</span><b id="statTps">0</b></div>
+        <div class="stat-card"><span>سرعت</span><b id="statSpeed">0x</b></div>
+        <div class="stat-card"><span>اسپایک کل</span><b id="statSpikes">0</b></div>
+        <div class="stat-card"><span>زنده/مرده</span><b><span id="statAlive">0</span>/<span id="statDead">0</span></b></div>
+        <div class="stat-card"><span>ignore/seizure</span><b><span id="statIgnore">0</span>/<span id="statSeizure">0</span></b></div>
+        <div class="stat-card"><span>CPU فرکانس</span><b id="statCpuFreq">0</b></div>
+        <div class="stat-card"><span>CPU بودجه/واقعی</span><b><span id="statCpuBudget">0%</span> / <span id="statCpuUsage">0%</span></b></div>
+      </div>
+      <canvas id="tpsChart" width="320" height="100"></canvas>
+      <canvas id="bloodChart" width="320" height="60"></canvas>
+    </section>
 
-    <h2>📜 اتفاقات داخلی مدل</h2>
-    <div class="small">تنظیم هیجان، تشنج، مرگ، جوانه‌زنی، تغییر معماری حافظه (هر ۲۰۰ تیک)، بازنویسی کامل (هر ۱۰۰۰ تیک)، فراموشی انتخابی</div>
-    <div id="eventLog" class="log"></div>
-    <button id="btnClearEvents">پاک کردن لاگ</button>
+    <section>
+      <h2>🔄 Efference Copy (تاخیر 5)</h2>
+      <div id="efferenceInfo" class="hint"></div>
+      <div id="efferenceList" class="mini-list"></div>
+      <div class="hint">طبق سند: خروجی با تاخیر دوباره به مغز تزریق میشه تا به کار خودش فکر کنه</div>
+    </section>
 
-    <h2>📈 نمودار TPS</h2>
-    <canvas id="tpsChart" width="300" height="150"></canvas>
-  </section>
+    <section>
+      <h2>🖥️ دستگاه‌ها</h2>
+      <div id="deviceList" class="devices"></div>
+    </section>
+
+    <section>
+      <h2>📜 اتفاقات داخلی (200 و 1000 تیک)</h2>
+      <div class="filter-row">
+        <button class="btn small ghost filter" data-filter="all">همه</button>
+        <button class="btn small ghost filter" data-filter="arch_change">معماری 200</button>
+        <button class="btn small ghost filter" data-filter="full_rewrite">بازسازی 1000</button>
+        <button class="btn small ghost filter" data-filter="forget">فراموشی</button>
+        <button class="btn small ghost filter" data-filter="meaningful">معنادار</button>
+      </div>
+      <div id="eventLog" class="event-log"></div>
+      <button id="btnClearEvents" class="btn ghost small">پاک لاگ</button>
+    </section>
+  </aside>
+</div>
+
+<!-- مودال نمره‌دهی -->
+<div id="scoreModal" class="modal hidden">
+  <div class="modal-content">
+    <h3>نمره‌دهی به خروجی</h3>
+    <p>متن انتخاب شده: <b id="modalText"></b></p>
+    <div class="score-grid">
+      <button class="btn primary" data-score="10">+10 فوق‌العاده 🌟 (خون + تزریق به نورون‌های خروجی)</button>
+      <button class="btn" data-score="5">+5 عالی 👍</button>
+      <button class="btn" data-score="1">+1 خوب</button>
+      <button class="btn ghost negative" data-score="-5">-5 نویز 👎</button>
+      <button class="btn ghost" data-score="0" id="btnModalMeaning">✅ این بخش معناداره (Region mark)</button>
+    </div>
+    <button id="btnCloseModal" class="btn ghost">بستن</button>
+  </div>
 </div>
 
 <footer>
-  <div>سند می‌گوید مدل هیچ‌وقت کامل متوقف نمی‌شود مگر دخالت دستی — این داشبورد همان دخالت دستی است. // فرکانس و درصد و سرعت و اتفاقات داخلی همه اینجا</div>
-  <div><a href="/api/status" target="_blank">JSON خام وضعیت</a> | <a href="/api/codec_test" target="_blank">تست کدک</a></div>
+  <span>مدل همواره در حال فکر (spontaneous) • خروجی تصمیم • هر نورون معمولی 96KB، حافظه‌ای 96KB+512KB • نسبت حرفه‌ای auto • 200 تیک تغییر معماری • 1000 تیک بازنویسی کامل</span>
+  <span><a href="/api/status" target="_blank">JSON</a> • <a href="/api/codec_test" target="_blank">bijection test</a></span>
 </footer>
 
 <script src="app.js"></script>

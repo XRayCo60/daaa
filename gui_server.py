@@ -512,7 +512,7 @@ class Brain:
         return {'tick':self.tick_count,'blood':self.blood,'alive':alive,'dead':dead,'ignore':ignore,'seizure':seizure,'spikes':spikes}
 
 # ---------- HTTP Handler ----------
-brain = Brain(512)
+brain = Brain(4096)
 brain_lock = threading.Lock()
 sim_running = True
 
@@ -651,9 +651,10 @@ class Handler(BaseHTTPRequestHandler):
                         total_forget+=n.forget_counter
                     else:
                         normal_total+=len(n.personal_memory)
-                ev=list(brain.event_log)[-50:]
+                ev=list(brain.event_log)[-100:]
                 delayed=[e for e in brain.efference if brain.tick_count >= e['tick']+5]
-                recent=brain.get_recent_output(200)
+                recent=brain.get_recent_output(500)
+                out_hist=brain.output_history[-200:]
                 obj={
                     'tick':stats['tick'],
                     'blood':stats['blood'],
@@ -672,6 +673,7 @@ class Handler(BaseHTTPRequestHandler):
                     'always_thinking':True,
                     'vm_mode':brain.vm_mode,
                     'recent_output':recent,
+                    'output_history':[{'tick':h['tick'],'pattern':h['pattern'],'char':h['char']} for h in out_hist],
                     'regions':[{'name':r['name'],'kind':r['kind'],'neurons':len(r['ids']),'meaningful':r['meaningful'],'note':r['note'],'mana_share':r['mana_share']} for r in brain.regions],
                     'events':[{'tick':e['tick'],'type':e['type'],'message':e['message'],'neuron_id':e['neuron_id']} for e in ev],
                     'efference_count':len(delayed),
@@ -776,6 +778,53 @@ class Handler(BaseHTTPRequestHandler):
                 brain.config_n=n
                 brain.initialize()
             json_resp({'ok':True,'neurons':n})
+            return
+        if path=='/api/score' and method=='POST':
+            text=body_json.get('text','') or ''
+            score=safe_float(body_json.get('score',5),5.0)
+            meaningful=bool(body_json.get('meaningful',False))
+            ticks=body_json.get('ticks',[])
+            with brain_lock:
+                # نمره‌دهی به خروجی انتخاب شده
+                # هر +1 امتیاز = +2 خون + 1 مانا به نورون‌های خروجی
+                if score>0:
+                    brain.blood+=abs(score)*2
+                    # تزریق به نورون‌های خروجی که این متن را تولید کردند
+                    out_region=None
+                    for r in brain.regions:
+                        if 'Output' in r['name']:
+                            out_region=r
+                            break
+                    if out_region:
+                        for nid in out_region['ids']:
+                            if nid < len(brain.neurons):
+                                brain.neurons[nid].mana+=abs(score)*0.5
+                    brain.push_event('score', f'کاربر به \"{text[:20]}\" نمره {score} داد (خون +{abs(score)*2})', 0)
+                    if meaningful:
+                        brain.push_event('meaningful', f'کاربر گفت \"{text[:20]}\" معناداره', 0)
+                        # علامت‌گذاری ناحیه خروجی به عنوان معنادار
+                        for r in brain.regions:
+                            if 'Output' in r['name']:
+                                r['meaningful']=True
+                                r['note']=f'کاربر گفته {text[:10]} معناداره'
+                else:
+                    # نمره منفی = تنبیه نویز
+                    brain.global_noise = min(1.0, brain.global_noise + 0.02)
+                    brain.push_event('score_negative', f'کاربر به \"{text[:20]}\" نمره منفی {score} داد - تنبیه نویز', 0)
+            json_resp({'ok':True,'text':text,'score':score})
+            return
+        if path=='/api/score_region' and method=='POST':
+            name=body_json.get('name','') or ''
+            score=safe_float(body_json.get('score',5),5.0)
+            with brain_lock:
+                for r in brain.regions:
+                    if r['name']==name or name in r['name']:
+                        for nid in r['ids']:
+                            if nid < len(brain.neurons):
+                                brain.neurons[nid].mana+=score
+                        brain.push_event('score_region', f'ناحیه {name} نمره {score} گرفت', 0)
+                        break
+            json_resp({'ok':True})
             return
 
         json_resp({'error':'unknown api '+path})

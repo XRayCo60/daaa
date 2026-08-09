@@ -15,7 +15,7 @@
 namespace daaa {
 
 struct BrainConfig {
-    size_t initial_neurons = 256; // برای تست اولیه، بعداً 10k..100k
+    size_t initial_neurons = 4096; // طبق درخواست کاربر: تعداد شروع تا 4096
     size_t initial_memory_neurons = 0; // اگر 0 باشد، اتومات حرفه‌ای محاسبه می‌شود
     float connection_prob = 0.05f; // احتمال اتصال بین دو نورون
     uint64_t seed = 42;

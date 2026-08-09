@@ -461,7 +461,7 @@ int main(int argc, char* argv[]){
     if (argc>=2) port = atoi(argv[1]);
 
     BrainConfig cfg;
-    cfg.initial_neurons = 512;
+    cfg.initial_neurons = 4096;
     cfg.initial_memory_neurons = 0; // اتومات حرفه‌ای
     Brain brain(cfg);
     g_brain = &brain;
