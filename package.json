@@ -1,0 +1,13 @@
+{
+  "name": "ostfront",
+  "version": "1.0.0",
+  "private": true,
+  "description": "OSTFRONT — real-time Eastern Front strategy, Wehrmacht vs Red Army",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

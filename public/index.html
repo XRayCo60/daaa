@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>OSTFRONT — جبههٔ شرق</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Vazirmatn:wght@300;400;500;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <div id="grain"></div>
+
+  <section id="screen-menu" class="screen on">
+    <div class="menu-bg"></div>
+    <div class="vignette"></div>
+    <div class="menu-inner">
+      <p class="kicker">تابستان ۱۹۴۱</p>
+      <h1>OSTFRONT</h1>
+      <h2>جبههٔ شرق</h2>
+      <p class="lede">اروپا سقوط کرده. دو قدرت مانده‌اند. ورماخت و ارتش سرخ.</p>
+      <div class="mode-row">
+        <button class="mode-btn" id="btn-single" type="button">
+          <span class="mode-n">۰۱</span>
+          <span class="mode-t">تک‌نفره</span>
+          <span class="mode-s">علیه ستاد کل دشمن</span>
+        </button>
+        <button class="mode-btn" id="btn-multi" type="button">
+          <span class="mode-n">۰۲</span>
+          <span class="mode-t">دونفره</span>
+          <span class="mode-s">یک نشانی، دو لپ‌تاپ</span>
+        </button>
+      </div>
+      <button class="ghost join-existing hidden" id="btn-join" type="button">پیوستن به نبرد دونفرهٔ در انتظار</button>
+      <p class="busy hidden" id="busy">یک نبرد در جریان است. بعد از پایان، همین نشانی را تازه کنید.</p>
+      <p class="foot">نبرد زنده است. پایتخت را بگیر.</p>
+    </div>
+  </section>
+
+  <section id="screen-lobby" class="screen">
+    <div class="lobby-bg"></div>
+    <div class="vignette"></div>
+    <div class="lobby-inner">
+      <p class="kicker" id="lobby-kicker">انتخاب جبهه</p>
+      <h2 class="lobby-title">کدام طرف می‌جنگی؟</h2>
+      <p class="lobby-sub" id="lobby-sub"></p>
+      <div class="faction-row">
+        <button class="faction-card ger" id="pick-ger" type="button">
+          <img src="/img/ger-card.jpg" alt="" />
+          <div class="faction-meta">
+            <span class="faction-tag">غرب</span>
+            <strong>ورماخت</strong>
+            <em>کیفیت، سوخت محدود، ضربهٔ اول</em>
+          </div>
+        </button>
+        <button class="faction-card sov" id="pick-sov" type="button">
+          <img src="/img/sov-card.jpg" alt="" />
+          <div class="faction-meta">
+            <span class="faction-tag">شرق</span>
+            <strong>ارتش سرخ</strong>
+            <em>عمق، صنعت، نفت باکو</em>
+          </div>
+        </button>
+      </div>
+      <div class="lobby-status" id="lobby-status"></div>
+      <div class="url-box hidden" id="url-box">
+        <span>این نشانی را در لپ‌تاپ دوم باز کنید</span>
+        <code id="share-url"></code>
+        <button type="button" id="btn-copy">رونوشت</button>
+      </div>
+      <div class="lobby-actions">
+        <button class="ready-btn" id="btn-ready" type="button" disabled>آماده‌ام</button>
+        <button class="ghost" id="btn-cancel" type="button">بازگشت</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="screen-game" class="screen">
+    <canvas id="c"></canvas>
+    <div id="hud" dir="rtl">
+      <header class="topbar">
+        <div class="brand">
+          <b>OSTFRONT</b>
+          <span id="hud-day">روز ۱</span>
+        </div>
+        <div class="res" id="hud-res">
+          <span title="صنعت"><i>⚙</i><b id="r-i">0</b></span>
+          <span title="نیرو"><i>♟</i><b id="r-m">0</b></span>
+          <span title="نفت"><i>◆</i><b id="r-o">0</b></span>
+          <span class="pop" title="سقف نیرو"><b id="r-pop">0</b>/<small>40</small></span>
+        </div>
+        <div class="top-right">
+          <span id="hud-fac"></span>
+          <button type="button" id="btn-mute" title="صدا">♪</button>
+        </div>
+      </header>
+
+      <div id="toasts"></div>
+      <div id="hint">چپ‌کلیک انتخاب · راست‌کلیک حرکت/حمله · شهر برای تولید · WASD حرکت نقشه</div>
+
+      <aside id="prod" class="hidden">
+        <header>
+          <strong id="prod-name"></strong>
+          <em id="prod-own"></em>
+        </header>
+        <div id="prod-cards"></div>
+        <div id="prod-q"></div>
+        <p class="prod-tip">راست‌کلیک روی نقشه: نقطهٔ تجمع</p>
+      </aside>
+
+      <aside id="sel" class="hidden">
+        <strong id="sel-name"></strong>
+        <em id="sel-role"></em>
+        <div class="hp"><i id="sel-hpbar"></i></div>
+        <small id="sel-count"></small>
+      </aside>
+
+      <div id="end" class="hidden">
+        <p class="kicker" id="end-kicker"></p>
+        <h2 id="end-title"></h2>
+        <p id="end-sub"></p>
+      </div>
+    </div>
+  </section>
+
+  <script src="/js/shared.js"></script>
+  <script src="/js/gfx.js"></script>
+  <script src="/js/client.js"></script>
+</body>
+</html>
