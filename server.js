@@ -3,9 +3,6 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { WebSocketServer } = require('ws');
-const { Game } = require('./src/game');
-const OST = require('./public/js/shared.js');
 
 const PORT = Number(process.env.PORT) || 8080;
 const HOST = '0.0.0.0';
@@ -24,30 +21,59 @@ const MIME = {
   '.json': 'application/json'
 };
 
-const game = new Game();
-const sockets = new Map(); // ws -> playerId
+const room = { next: 1, hostId: null, cmds: [], snap: { hellos: {}, state: null } };
 
-function send(ws, obj) {
-  if (ws.readyState === 1) {
-    try { ws.send(JSON.stringify(obj)); } catch (_) { /* ignore */ }
-  }
-}
-
-function broadcast(obj) {
+function json(res, obj, code) {
   const s = JSON.stringify(obj);
-  for (const ws of sockets.keys()) {
-    if (ws.readyState === 1) {
-      try { ws.send(s); } catch (_) { /* ignore */ }
-    }
-  }
+  res.writeHead(code || 200, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store'
+  });
+  res.end(s);
 }
 
-function syncMeta() {
-  for (const [ws, id] of sockets) send(ws, game.hello(id));
+function readBody(req) {
+  return new Promise((resolve) => {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      try { resolve(JSON.parse(Buffer.concat(chunks).toString() || '{}')); }
+      catch { resolve({}); }
+    });
+  });
 }
 
 const server = http.createServer((req, res) => {
   let urlPath = decodeURIComponent((req.url || '/').split('?')[0]);
+  if (urlPath.startsWith('/api/')) {
+    const done = (p) => p.catch(() => json(res, { ok: false }, 400));
+    if (urlPath === '/api/join' && req.method === 'POST') {
+      const id = 'p' + room.next++;
+      const host = !room.hostId;
+      if (host) room.hostId = id;
+      json(res, { id, host });
+      return;
+    }
+    if (urlPath === '/api/cmd' && req.method === 'POST') {
+      done(readBody(req).then((b) => { room.cmds.push(b); json(res, { ok: true }); }));
+      return;
+    }
+    if (urlPath === '/api/cmds') {
+      const cmds = room.cmds.splice(0, room.cmds.length);
+      json(res, { cmds });
+      return;
+    }
+    if (urlPath === '/api/snap' && req.method === 'POST') {
+      done(readBody(req).then((b) => { room.snap = b; json(res, { ok: true }); }));
+      return;
+    }
+    if (urlPath === '/api/snap') {
+      json(res, room.snap || { hellos: {}, state: null });
+      return;
+    }
+    json(res, { error: 'nope' }, 404);
+    return;
+  }
   if (urlPath === '/') urlPath = '/index.html';
   if (urlPath.includes('..')) {
     res.writeHead(400); res.end(); return;
@@ -70,52 +96,6 @@ const server = http.createServer((req, res) => {
     res.end(data);
   });
 });
-
-const wss = new WebSocketServer({ server, path: '/ws' });
-
-wss.on('connection', (ws) => {
-  const id = game.connect();
-  sockets.set(ws, id);
-  send(ws, game.hello(id));
-
-  ws.on('message', (raw) => {
-    let msg;
-    try { msg = JSON.parse(raw.toString()); } catch { return; }
-    const before = game.phase;
-    game.handle(id, msg);
-    if (msg.t === 'cmd') return;
-    syncMeta();
-    if (game.phase === 'playing' && before !== 'playing') {
-      broadcast(game.serialize());
-    }
-  });
-
-  ws.on('close', () => {
-    sockets.delete(ws);
-    game.disconnect(id);
-    syncMeta();
-  });
-
-  ws.on('error', () => { /* ignore */ });
-});
-
-setInterval(() => {
-  if (game.phase !== 'playing' && game.phase !== 'ended') return;
-  if (game.phase === 'playing') game.tick(1 / OST.TICK);
-    const snap = JSON.stringify(game.serialize());
-    for (const [ws, id] of sockets) {
-      if (game.canSee(id) && ws.readyState === 1) {
-        try { ws.send(snap); } catch (_) { /* ignore */ }
-      }
-    }
-    if (game.phase === 'ended') {
-    // allow victory screen, then reset after a few seconds of ticks
-    if (game.endedAt && Date.now() - game.endedAt > 14000) {
-      game.resetMenu();
-      syncMeta();
-    }
-  }
-}, 1000 / OST.TICK);
 
 server.listen(PORT, HOST, () => {
   console.log('OSTFRONT http://' + HOST + ':' + PORT);

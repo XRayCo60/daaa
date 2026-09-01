@@ -56,28 +56,102 @@
     $('btn-mute').textContent = muted ? '×' : '♪';
   };
 
-  /* ---------- net ---------- */
-  let ws = null;
+  /* ---------- local sim + optional LAN (no Node) ---------- */
+  const FILE = location.protocol === 'file:';
+  const { Game } = window.OSTGame;
+  let game = null;
   let myId = null;
+  let isHost = true;
   let myFac = null;
   let meta = { phase: 'menu', mode: null, players: [] };
   let snapA = null, snapB = null, snapAt = 0;
   const SNAP = 1000 / 12;
 
-  function connect() {
-    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    ws = new WebSocket(proto + '//' + location.host + '/ws');
-    ws.onopen = () => {};
-    ws.onclose = () => setTimeout(connect, 1200);
-    ws.onmessage = (ev) => {
-      let msg;
-      try { msg = JSON.parse(ev.data); } catch { return; }
-      if (msg.t === 'hello') onHello(msg);
-      else if (msg.t === 'state') onState(msg);
-    };
-  }
   function send(obj) {
-    if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj));
+    if (isHost && game) {
+      game.handle(myId, obj);
+      emit();
+      return;
+    }
+    lanPost('api/cmd', { id: myId, msg: obj });
+  }
+
+  function emit() {
+    if (!game) return;
+    onHello(game.hello(myId));
+    if (game.phase === 'playing' || game.phase === 'ended') onState(game.serialize());
+    if (!FILE && isHost) {
+      const hellos = {};
+      for (const id of game.clients.keys()) hellos[id] = game.hello(id);
+      lanPost('api/snap', {
+        hellos,
+        state: (game.phase === 'playing' || game.phase === 'ended') ? game.serialize() : null
+      });
+    }
+  }
+
+  function lanPost(path, body) {
+    if (FILE) return Promise.resolve(null);
+    return fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(r => r.ok ? r.json().catch(() => ({})) : null).catch(() => null);
+  }
+
+  function bootHost(id) {
+    game = new Game();
+    myId = game.connect(id || undefined);
+    isHost = true;
+    emit();
+  }
+
+  function connect() {
+    if (FILE) {
+      bootHost();
+      return;
+    }
+    fetch('api/join', { method: 'POST' }).then(r => {
+      if (!r.ok) throw new Error('no lan');
+      return r.json();
+    }).then(j => {
+      myId = j.id;
+      isHost = !!j.host;
+      if (isHost) bootHost(myId);
+      pollLan();
+    }).catch(() => {
+      bootHost();
+    });
+  }
+
+  function pollLan() {
+    setInterval(async () => {
+      try {
+        if (isHost && game) {
+          const bag = await fetch('api/cmds').then(r => r.json()).catch(() => null);
+          const cmds = (bag && bag.cmds) || [];
+          let dirty = false;
+          for (const c of cmds) {
+            if (!c || !c.id || !c.msg) continue;
+            if (!game.clients.has(c.id)) game.connect(c.id);
+            game.handle(c.id, c.msg);
+            dirty = true;
+          }
+          if (dirty) emit();
+          return;
+        }
+        const snap = await fetch('api/snap').then(r => r.json()).catch(() => null);
+        if (!snap) return;
+        if (snap.hellos && snap.hellos[myId]) onHello(snap.hellos[myId]);
+        else if (snap.hellos) {
+          const any = Object.values(snap.hellos)[0];
+          if (any && any.phase === 'lobby') {
+            onHello(Object.assign({}, any, { id: myId, players: (any.players || []).map(p => Object.assign({}, p, { you: p.id === myId })) }));
+          }
+        }
+        if (snap.state) onState(snap.state);
+      } catch (_) { /* ignore */ }
+    }, 90);
   }
 
   function onHello(msg) {
@@ -164,7 +238,15 @@
 
   /* ---------- menu / lobby ---------- */
   $('btn-single').onclick = () => { beep(440, 0.08, 'square', 0.03); send({ t: 'mode', mode: 'single' }); };
-  $('btn-multi').onclick = () => { beep(440, 0.08, 'square', 0.03); send({ t: 'mode', mode: 'multi' }); };
+  $('btn-multi').onclick = () => {
+    beep(440, 0.08, 'square', 0.03);
+    if (FILE) {
+      $('busy').classList.remove('hidden');
+      $('busy').textContent = 'برای دونفره فایل lan.ps1 را در پاورشل اجرا کنید، بعد نشانی localhost را باز کنید.';
+      return;
+    }
+    send({ t: 'mode', mode: 'multi' });
+  };
   $('btn-join').onclick = () => send({ t: 'mode', mode: 'multi' });
   $('pick-ger').onclick = () => pick('ger');
   $('pick-sov').onclick = () => pick('sov');
@@ -591,5 +673,19 @@
   }
   GFX.ensureMap();
   connect();
+  setInterval(() => {
+    if (!isHost || !game) return;
+    if (game.phase === 'playing') {
+      game.tick(1 / OST.TICK);
+      onState(game.serialize());
+      if (!FILE) emit();
+    } else if (game.phase === 'ended') {
+      onState(game.serialize());
+      if (game.endedAt && Date.now() - game.endedAt > 14000) {
+        game.resetMenu();
+        emit();
+      }
+    }
+  }, 1000 / 12);
   requestAnimationFrame(frame);
 })();

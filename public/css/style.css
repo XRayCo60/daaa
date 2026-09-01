@@ -40,7 +40,7 @@ body {
 /* ===== MENU ===== */
 .menu-bg, .lobby-bg {
   position: absolute; inset: 0;
-  background: #0a0907 url('/img/menu-bg.jpg') center/cover no-repeat;
+  background: #0a0907 url('../img/menu-bg.jpg') center/cover no-repeat;
   filter: saturate(0.85) contrast(1.05);
   transform: scale(1.06);
   animation: slowpan 48s ease-in-out infinite alternate;
