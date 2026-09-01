@@ -13,7 +13,7 @@ const GFX = (() => {
   }
 
   function buildMap() {
-    const s = 0.5;
+    const s = 0.42;
     const w = Math.floor(WORLD.W * s);
     const h = Math.floor(WORLD.H * s);
     const c = document.createElement('canvas');
@@ -22,66 +22,68 @@ const GFX = (() => {
     g.scale(s, s);
 
     const land = g.createLinearGradient(0, 0, 0, WORLD.H);
-    land.addColorStop(0, '#c9c6b8');
-    land.addColorStop(0.18, '#8a8b74');
-    land.addColorStop(0.45, '#6b6e4e');
-    land.addColorStop(0.72, '#7a6a48');
-    land.addColorStop(1, '#5a5340');
+    land.addColorStop(0, '#cfcab8');
+    land.addColorStop(0.16, '#8e8d72');
+    land.addColorStop(0.42, '#6c704e');
+    land.addColorStop(0.7, '#7a6c4a');
+    land.addColorStop(1, '#5c5340');
     g.fillStyle = land;
     g.fillRect(0, 0, WORLD.W, WORLD.H);
 
-    // biome blobs
-    for (let i = 0; i < 90; i++) {
+    for (let i = 0; i < 140; i++) {
       const x = hash(i, 1) * WORLD.W;
       const y = hash(i, 2) * WORLD.H;
-      const r = 80 + hash(i, 3) * 180;
-      const grd = g.createRadialGradient(x, y, 8, x, y, r);
-      const snow = y < 420;
-      grd.addColorStop(0, snow ? 'rgba(232,230,220,0.28)' : 'rgba(48,70,36,0.18)');
+      const r = 90 + hash(i, 3) * 220;
+      const grd = g.createRadialGradient(x, y, 10, x, y, r);
+      const snow = y < 520;
+      grd.addColorStop(0, snow ? 'rgba(236,232,220,0.32)' : 'rgba(48,72,36,0.2)');
       grd.addColorStop(1, 'rgba(0,0,0,0)');
       g.fillStyle = grd;
       g.beginPath(); g.arc(x, y, r, 0, 6.28); g.fill();
     }
 
-    // Pripyat marshes
     {
-      const grd = g.createRadialGradient(1180, 1020, 20, 1180, 1020, 320);
-      grd.addColorStop(0, 'rgba(40,55,38,0.55)');
-      grd.addColorStop(1, 'rgba(40,55,38,0)');
+      const grd = g.createRadialGradient(1780, 1420, 30, 1780, 1420, 420);
+      grd.addColorStop(0, 'rgba(36,52,34,0.62)');
+      grd.addColorStop(1, 'rgba(36,52,34,0)');
       g.fillStyle = grd;
-      g.beginPath(); g.ellipse(1180, 1020, 300, 170, 0, 0, 6.28); g.fill();
+      g.beginPath(); g.ellipse(1780, 1420, 380, 220, 0, 0, 6.28); g.fill();
     }
 
-    // Caucasus ridges
     g.save();
-    g.strokeStyle = 'rgba(40,32,24,0.35)';
-    g.lineWidth = 7;
-    for (let i = 0; i < 6; i++) {
+    g.strokeStyle = 'rgba(40,32,24,0.4)';
+    g.lineWidth = 8;
+    for (let i = 0; i < 7; i++) {
       g.beginPath();
-      g.moveTo(2100, 1560 + i * 18);
-      g.bezierCurveTo(2500, 1500 + i * 14, 2800, 1620 + i * 10, 3180, 1580 + i * 12);
+      g.moveTo(3000, 2200 + i * 16);
+      g.bezierCurveTo(3600, 2140 + i * 12, 4100, 2280 + i * 10, 4600, 2220 + i * 12);
       g.stroke();
     }
     g.restore();
 
-    // water overlay by sampling
+    g.strokeStyle = 'rgba(40,36,28,0.12)';
+    g.lineWidth = 1;
+    for (let x = 0; x < WORLD.W; x += 200) {
+      g.beginPath(); g.moveTo(x, 0); g.lineTo(x, WORLD.H); g.stroke();
+    }
+    for (let y = 0; y < WORLD.H; y += 200) {
+      g.beginPath(); g.moveTo(0, y); g.lineTo(WORLD.W, y); g.stroke();
+    }
+
     g.fillStyle = '#1a2c34';
     g.beginPath();
-    const step = 14;
+    const step = 16;
     for (let y = 0; y < WORLD.H; y += step) {
       for (let x = 0; x < WORLD.W; x += step) {
-        if (isWater(x + 6, y + 6)) {
-          g.rect(x - 1, y - 1, step + 2, step + 2);
-        }
+        if (isWater(x + 8, y + 8)) g.rect(x - 1, y - 1, step + 2, step + 2);
       }
     }
     g.fill();
-    // water sheen
     g.fillStyle = 'rgba(90,140,150,0.08)';
     g.beginPath();
     for (let y = 0; y < WORLD.H; y += step) {
       for (let x = 0; x < WORLD.W; x += step) {
-        if (isWater(x + 6, y + 6) && hash(x, y) > 0.72) g.rect(x, y, step, step);
+        if (isWater(x + 8, y + 8) && hash(x, y) > 0.7) g.rect(x, y, step, step);
       }
     }
     g.fill();
@@ -89,27 +91,28 @@ const GFX = (() => {
     drawRivers(g);
     drawRails(g);
 
-    // occupied Europe stamp
-    g.save();
-    g.translate(180, 860);
-    g.rotate(-0.4);
-    g.fillStyle = 'rgba(20,16,10,0.35)';
-    g.font = '700 28px Vazirmatn, sans-serif';
-    g.fillText('اروپای اشغالی', 0, 0);
-    g.restore();
+    function stamp(text, x, y, rot, size, alpha) {
+      g.save();
+      g.translate(x, y);
+      g.rotate(rot);
+      g.fillStyle = 'rgba(20,16,10,' + alpha + ')';
+      g.font = '700 ' + size + 'px Vazirmatn, sans-serif';
+      g.fillText(text, 0, 0);
+      g.restore();
+    }
+    stamp('اروپای اشغالی', 220, 1180, -0.45, 32, 0.38);
+    stamp('گروه ارتش شمال', 1500, 520, -0.12, 22, 0.22);
+    stamp('گروه ارتش مرکز', 1680, 1180, -0.05, 22, 0.22);
+    stamp('گروه ارتش جنوب', 1680, 1880, 0.08, 22, 0.22);
+    stamp('استپ', 3000, 1900, 0, 26, 0.2);
+    stamp('قفقاز', 3800, 2280, 0.1, 24, 0.22);
+    stamp('اورال', 4300, 700, 0, 28, 0.28);
+    stamp('مرداب پریپیات', 1680, 1420, 0, 18, 0.3);
 
-    g.save();
-    g.translate(2860, 480);
-    g.fillStyle = 'rgba(20,16,10,0.28)';
-    g.font = '700 22px Vazirmatn, sans-serif';
-    g.fillText('اورال', 0, 0);
-    g.restore();
-
-    // grain
     const img = g.getImageData(0, 0, w, h);
     const d = img.data;
-    for (let i = 0; i < d.length; i += 16) {
-      const n = (hash(i, 9) - 0.5) * 18;
+    for (let i = 0; i < d.length; i += 20) {
+      const n = (hash(i, 9) - 0.5) * 16;
       d[i] = Math.max(0, Math.min(255, d[i] + n));
       d[i + 1] = Math.max(0, Math.min(255, d[i + 1] + n));
       d[i + 2] = Math.max(0, Math.min(255, d[i + 2] + n));
@@ -124,20 +127,17 @@ const GFX = (() => {
     g.lineCap = 'round';
     g.lineJoin = 'round';
     const rivers = [
-      // Vistula
-      [[620, 430], [700, 700], [820, 980], [780, 1280], [760, 1500]],
-      // Dnieper
-      [[1500, 300], [1380, 620], [1320, 900], [1400, 1240], [1480, 1500], [1520, 1720]],
-      // Don
-      [[2100, 900], [1980, 1100], [1920, 1480], [2000, 1700]],
-      // Volga
-      [[2620, 400], [2500, 700], [2420, 1000], [2380, 1320], [2500, 1600], [2700, 1780]],
-      // Daugava
-      [[1100, 220], [1000, 400], [920, 520]]
+      [[780, 500], [900, 740], [1080, 1340], [1040, 1720], [1000, 2100]],
+      [[1400, 540], [1320, 880], [1480, 980]],
+      [[2180, 360], [2100, 800], [2040, 1140], [2160, 1760], [2200, 2140], [2180, 2460]],
+      [[1780, 1280], [1880, 1420], [2040, 1520], [2160, 1760]],
+      [[3280, 980], [3180, 1400], [3000, 2140], [3100, 2500]],
+      [[3920, 400], [3720, 860], [3600, 1400], [3720, 1880], [4000, 2300], [4300, 2550]],
+      [[2720, 1720], [2800, 1900], [3000, 2140]]
     ];
     for (const r of rivers) {
       g.strokeStyle = '#1a2c34';
-      g.lineWidth = 10;
+      g.lineWidth = 11;
       g.beginPath();
       g.moveTo(r[0][0], r[0][1]);
       for (let i = 1; i < r.length; i++) g.lineTo(r[i][0], r[i][1]);
@@ -188,11 +188,11 @@ const GFX = (() => {
     if (!st.cities) return;
     for (const c of st.cities) {
       const col = c.owner === 'ger' ? '196,163,90' : '180,50,50';
-      const grd = ctx.createRadialGradient(c.x, c.y, 20, c.x, c.y, 210);
-      grd.addColorStop(0, 'rgba(' + col + ',0.16)');
+      const grd = ctx.createRadialGradient(c.x, c.y, 24, c.x, c.y, 280);
+      grd.addColorStop(0, 'rgba(' + col + ',0.18)');
       grd.addColorStop(1, 'rgba(' + col + ',0)');
       ctx.fillStyle = grd;
-      ctx.beginPath(); ctx.arc(c.x, c.y, 210, 0, 6.28); ctx.fill();
+      ctx.beginPath(); ctx.arc(c.x, c.y, 280, 0, 6.28); ctx.fill();
     }
   }
 
@@ -228,13 +228,22 @@ const GFX = (() => {
         ctx.fillRect(c.x - 4, c.y - 4, 8, 8);
       }
 
-      if (cam.z > 0.42 || proto.capital || (hover && hover.kind === 'city' && hover.id === c.id)) {
-        ctx.font = (proto.capital ? '700 ' : '500 ') + (cam.z > 0.7 ? '16px' : '13px') + ' Vazirmatn, sans-serif';
+      if (cam.z > 0.38 || proto.capital || proto.o > 1 || (hover && hover.kind === 'city' && hover.id === c.id)) {
+        ctx.font = (proto.capital ? '700 ' : '500 ') + (cam.z > 0.65 ? '16px' : '13px') + ' Vazirmatn, sans-serif';
         ctx.textAlign = 'center';
         ctx.fillStyle = 'rgba(12,10,7,0.7)';
         ctx.fillText(proto.nameFa, c.x + 1, c.y + 22);
         ctx.fillStyle = '#f0e6d0';
         ctx.fillText(proto.nameFa, c.x, c.y + 21);
+        if (cam.z > 0.7) {
+          ctx.font = '500 11px Vazirmatn, sans-serif';
+          ctx.fillStyle = 'rgba(210,196,160,0.85)';
+          const bits = [];
+          if (proto.i >= 1) bits.push('صنعت');
+          if (proto.o >= 1) bits.push('نفت');
+          if (proto.capital) bits.push('پایتخت');
+          if (bits.length) ctx.fillText(bits.join(' · '), c.x, c.y + 36);
+        }
       }
     }
   }

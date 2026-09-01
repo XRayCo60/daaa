@@ -327,9 +327,9 @@
     $('hud-fac').textContent = myFac ? FACTIONS[myFac].nameFa : '';
     $('hud-fac').className = myFac || '';
     intro = 1;
-    cam.x = myFac === 'sov' ? 1900 : 900;
-    cam.y = 900;
-    cam.z = 0.42;
+    cam.x = myFac === 'sov' ? 2400 : 1500;
+    cam.y = 1280;
+    cam.z = 0.28;
     mySel = new Set();
     selectedCity = null;
     $('end').classList.add('hidden');
@@ -359,6 +359,15 @@
     $('r-o').textContent = r.o;
     $('r-pop').textContent = st.pop[myFac];
     $('hud-day').textContent = 'روز ' + st.day + ' — ژوئن ۱۹۴۱';
+    const netEl = $('r-net');
+    if (netEl && st.net && st.owned) {
+      netEl.textContent = st.net[myFac] + '/' + st.owned[myFac];
+    }
+    if (st.starved && st.starved[myFac]) {
+      $('r-o').parentElement.style.color = '#e07070';
+    } else {
+      $('r-o').parentElement.style.color = '';
+    }
     refreshProd(st);
     refreshSel(st);
   }
@@ -610,7 +619,7 @@
     if (screens.game.classList.contains('on') && st) {
       if (intro > 0) {
         intro = Math.max(0, intro - dt * 0.45);
-        cam.z = 0.38 + (1 - intro) * 0.18;
+        cam.z = 0.24 + (1 - intro) * 0.12;
       }
       const sp = 520 * dt / cam.z;
       if (keys.KeyW || keys.ArrowUp) cam.y -= sp;

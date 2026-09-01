@@ -43,6 +43,7 @@ class Game {
     this.aiAcc = 0;
     this.aiPushAt = 0;
     this.endedAt = 0;
+    this.starved = { ger: false, sov: false };
     this.humanFac = null;
     for (const [id, c] of this.clients) {
       c.faction = null;
@@ -201,10 +202,11 @@ class Game {
     this.deaths = [];
     this.alerts = [];
     this.aiAcc = 0;
-    this.aiPushAt = OST.TICK * 28;
+    this.aiPushAt = OST.TICK * 55;
+    this.starved = { ger: false, sov: false };
     this.res = {
-      ger: { i: 110, m: 150, o: 240 },
-      sov: { i: 95, m: 190, o: 105 }
+      ger: { i: 90, m: 120, o: 200 },
+      sov: { i: 80, m: 160, o: 90 }
     };
     this.cities = CITIES.map(c => ({
       id: c.id, x: c.x, y: c.y,
@@ -255,29 +257,44 @@ class Game {
         }
       }
     };
-    // Barbarossa jump-off — quality punch in the west
+    const C = (id) => OST.cityById(id);
     scatter([
-      ['grenadier', 'ger', 900, 900, 3],
-      ['grenadier', 'ger', 780, 620, 2],
-      ['grenadier', 'ger', 860, 1180, 2],
-      ['panzer4', 'ger', 920, 860, 2],
-      ['panzer4', 'ger', 880, 700, 1],
-      ['tiger', 'ger', 840, 940, 1],
-      ['wespe', 'ger', 760, 900, 2],
-      ['stuka', 'ger', 700, 820, 1]
+      ['grenadier', 'ger', C('warsaw').x, C('warsaw').y, 2],
+      ['grenadier', 'ger', C('konigsberg').x, C('konigsberg').y, 2],
+      ['grenadier', 'ger', C('krakow').x, C('krakow').y, 1],
+      ['grenadier', 'ger', C('berlin').x + 40, C('berlin').y, 1],
+      ['panzer4', 'ger', C('warsaw').x + 50, C('warsaw').y - 20, 1]
     ]);
-    // Red Army — depth, thinner at the border
     scatter([
-      ['strelok', 'sov', 1220, 800, 3],
-      ['strelok', 'sov', 1360, 1200, 3],
-      ['strelok', 'sov', 1580, 740, 2],
-      ['strelok', 'sov', 1480, 360, 2],
-      ['t34', 'sov', 1340, 860, 2],
-      ['t34', 'sov', 1500, 1180, 1],
-      ['kv1', 'sov', 1680, 820, 1],
-      ['katyusha', 'sov', 1460, 900, 2],
-      ['il2', 'sov', 1720, 700, 1]
+      ['strelok', 'sov', C('brest').x, C('brest').y, 1],
+      ['strelok', 'sov', C('lvov').x, C('lvov').y, 1],
+      ['strelok', 'sov', C('kaunas').x, C('kaunas').y, 1],
+      ['strelok', 'sov', C('riga').x, C('riga').y, 1],
+      ['strelok', 'sov', C('minsk').x, C('minsk').y, 2],
+      ['strelok', 'sov', C('kiev').x, C('kiev').y, 2],
+      ['strelok', 'sov', C('smolensk').x, C('smolensk').y, 1],
+      ['strelok', 'sov', C('leningrad').x, C('leningrad').y, 1],
+      ['strelok', 'sov', C('moscow').x, C('moscow').y, 1]
     ]);
+  }
+
+  _network(fac) {
+    const cap = this.cities.find(c => c.owner === fac && OST.cityById(c.id).capital);
+    const owned = new Set();
+    for (const c of this.cities) if (c.owner === fac) owned.add(c.id);
+    const net = new Set();
+    if (!cap) return net;
+    const q = [cap.id];
+    net.add(cap.id);
+    while (q.length) {
+      const u = q.shift();
+      const ns = OST.neighbors(u);
+      for (let i = 0; i < ns.length; i++) {
+        const v = ns[i];
+        if (owned.has(v) && !net.has(v)) { net.add(v); q.push(v); }
+      }
+    }
+    return net;
   }
 
   pop(fac) {
@@ -359,6 +376,7 @@ class Game {
     if (this.acc >= 1) {
       this.acc -= 1;
       this._income();
+      this._fuel();
       if (this.tickN % (OST.TICK * 25) === 0) this.day++;
     }
     this._production(dt);
@@ -380,17 +398,40 @@ class Game {
   }
 
   _income() {
+    const netG = this._network('ger');
+    const netS = this._network('sov');
     for (const c of this.cities) {
       const proto = OST.cityById(c.id);
+      const net = c.owner === 'ger' ? netG : netS;
+      const mul = net.has(c.id) ? 1 : 0.35;
       const r = this.res[c.owner];
-      r.i += proto.i;
-      r.m += proto.m;
-      r.o += proto.o;
+      r.i += proto.i * mul;
+      r.m += proto.m * mul;
+      r.o += proto.o * mul;
     }
     for (const f of ['ger', 'sov']) {
-      this.res[f].i = Math.min(900, this.res[f].i);
-      this.res[f].m = Math.min(900, this.res[f].m);
-      this.res[f].o = Math.min(900, this.res[f].o);
+      this.res[f].i = Math.min(999, this.res[f].i);
+      this.res[f].m = Math.min(999, this.res[f].m);
+      this.res[f].o = Math.min(999, this.res[f].o);
+    }
+  }
+
+  _fuel() {
+    for (const f of ['ger', 'sov']) {
+      let burn = 0;
+      for (const u of this.units) {
+        if (u.fac !== f) continue;
+        const def = UNIT_TYPES[u.type];
+        if (!def.burn) continue;
+        const moving = Math.hypot(u.tx - u.x, u.ty - u.y) > 14;
+        if (moving) burn += def.burn;
+      }
+      this.res[f].o = Math.max(0, this.res[f].o - burn);
+      const was = this.starved[f];
+      this.starved[f] = this.res[f].o <= 0.2;
+      if (this.starved[f] && !was) {
+        this.alerts.push({ fac: f, text: 'نفت تمام شد — تانک و هواپیما فلج می‌شوند', ttl: 6 });
+      }
     }
   }
 
@@ -415,12 +456,14 @@ class Game {
   }
 
   _supply() {
+    const nets = { ger: this._network('ger'), sov: this._network('sov') };
     for (const u of this.units) {
       const def = UNIT_TYPES[u.type];
       if (def.cls === 'air') { u.supplied = true; continue; }
       let ok = false;
+      const net = nets[u.fac];
       for (const c of this.cities) {
-        if (c.owner === u.fac && OST.dist(u, c) < 440) { ok = true; break; }
+        if (c.owner === u.fac && net.has(c.id) && OST.dist(u, c) < 400) { ok = true; break; }
       }
       u.supplied = ok;
     }
@@ -453,8 +496,10 @@ class Game {
         continue;
       }
       let ang = Math.atan2(dy, dx);
-      const sup = u.supplied ? 1 : 0.6;
-      const spd = def.speed * OST.terrainFactor(u.x, u.y, def.cls) * sup;
+      const sup = u.supplied ? 1 : 0.55;
+      const fuel = (this.starved[u.fac] && (def.cls === 'tank' || def.cls === 'air' || def.cls === 'art')) ? 0.38 : 1;
+      const rail = (def.cls !== 'air' && OST.onRail(u.x, u.y)) ? 1.45 : 1;
+      const spd = def.speed * OST.terrainFactor(u.x, u.y, def.cls) * sup * fuel * rail;
       let nx = u.x + Math.cos(ang) * spd * dt;
       let ny = u.y + Math.sin(ang) * spd * dt;
       if (def.cls !== 'air' && OST.isWater(nx, ny)) {
@@ -699,7 +744,7 @@ class Game {
         }
         return da - db;
       })
-      .slice(0, 2);
+      .slice(0, 3);
     for (const city of cities) {
       // pick affordable from want, else cheapest inf
       let pick = null;
@@ -800,7 +845,7 @@ class Game {
     const objective = this._aiObjective(me, theirCities, myCities);
     if (!objective) return;
 
-    if (pushing || idle.length >= 6) {
+    if (pushing) {
       for (const u of idle) {
         if (u.hp < UNIT_TYPES[u.type].hp * 0.28) continue;
         const jitter = 40;
