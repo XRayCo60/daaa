@@ -176,11 +176,42 @@ const GFX = (() => {
     ctx.translate(-cam.x, -cam.y);
 
     ctx.drawImage(mapCache, 0, 0, WORLD.W, WORLD.H);
+    if (st.season === 'mud') {
+      ctx.fillStyle = 'rgba(78, 58, 28, 0.16)';
+      ctx.fillRect(0, 0, WORLD.W, WORLD.H);
+    } else if (st.season === 'winter') {
+      ctx.fillStyle = 'rgba(210, 224, 236, 0.15)';
+      ctx.fillRect(0, 0, WORLD.W, WORLD.H);
+    }
     drawInfluence(ctx, st);
+    if (st.fog) drawFog(ctx, st, myFac);
     drawCities(ctx, st, cam, hover, dtClock);
     drawShots(ctx, st);
     drawUnits(ctx, st, sel, myFac, cam);
     if (box) drawBox(ctx, box);
+    ctx.restore();
+  }
+
+  function drawFog(ctx, st, myFac) {
+    if (!myFac) return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, WORLD.W, WORLD.H);
+    for (const u of st.units) {
+      if (u.fac !== myFac) continue;
+      const cls = UNIT_TYPES[u.type].cls;
+      const r = cls === 'air' ? 420 : cls === 'at' ? 280 : cls === 'tank' ? 260 : cls === 'art' ? 200 : 230;
+      ctx.moveTo(u.x + r, u.y);
+      ctx.arc(u.x, u.y, r, 0, 6.28);
+    }
+    for (const c of st.cities) {
+      if (c.owner !== myFac) continue;
+      const r = 300 + (c.depot ? 80 : 0);
+      ctx.moveTo(c.x + r, c.y);
+      ctx.arc(c.x, c.y, r, 0, 6.28);
+    }
+    ctx.fillStyle = st.season === 'winter' ? 'rgba(8,12,18,0.58)' : 'rgba(6,8,7,0.62)';
+    ctx.fill('evenodd');
     ctx.restore();
   }
 
@@ -242,7 +273,22 @@ const GFX = (() => {
           if (proto.i >= 1) bits.push('صنعت');
           if (proto.o >= 1) bits.push('نفت');
           if (proto.capital) bits.push('پایتخت');
+          if (proto.vp >= 2) bits.push(proto.vp + ' امتیاز');
           if (bits.length) ctx.fillText(bits.join(' · '), c.x, c.y + 36);
+        }
+      }
+      if (cam.z > 0.5) {
+        let px = c.x - 10;
+        const py = c.y - CITY_R + 10;
+        ctx.fillStyle = col;
+        for (let i = 0; i < (c.factory || 0); i++) { ctx.fillRect(px, py, 5, 5); px += 7; }
+        ctx.beginPath();
+        for (let i = 0; i < (c.barracks || 0); i++) { ctx.arc(px + 3, py + 3, 2.2, 0, 6.28); px += 7; }
+        ctx.fill();
+        if (c.depot) {
+          ctx.beginPath();
+          ctx.moveTo(px + 3, py); ctx.lineTo(px + 6, py + 5); ctx.lineTo(px, py + 5);
+          ctx.closePath(); ctx.fill();
         }
       }
     }
@@ -288,6 +334,13 @@ const GFX = (() => {
       if (!u.supplied) {
         ctx.fillStyle = '#d4b84a';
         ctx.fillRect(u.x - 2, u.y - def.radius - 12, 4, 4);
+      }
+      if (u.ent > 0.35) {
+        ctx.beginPath();
+        ctx.arc(u.x, u.y, def.radius + 5, 0, 6.28);
+        ctx.strokeStyle = 'rgba(30,40,24,' + (0.25 + u.ent * 0.45) + ')';
+        ctx.lineWidth = 2.2;
+        ctx.stroke();
       }
     }
   }
@@ -397,6 +450,16 @@ const GFX = (() => {
         break;
       case 'il2':
         drawPlane(ctx, '#3f4f2e', false);
+        break;
+      case 'pak40':
+      case 'zis3':
+        ctx.fillStyle = '#1a1a16';
+        ctx.beginPath(); ctx.arc(-5, 7, 3.2, 0, 6.28); ctx.arc(-5, -7, 3.2, 0, 6.28); ctx.fill();
+        ctx.fillStyle = col;
+        ctx.fillRect(-8, -8, 5, 16);
+        ctx.fillStyle = '#222';
+        ctx.fillRect(-3, -1.4, 20, 2.8);
+        if (type === 'pak40') markGer(ctx); else markSov(ctx);
         break;
     }
   }

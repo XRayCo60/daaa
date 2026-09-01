@@ -79,13 +79,18 @@
   function emit() {
     if (!game) return;
     onHello(game.hello(myId));
-    if (game.phase === 'playing' || game.phase === 'ended') onState(game.serialize());
+    if (game.phase === 'playing' || game.phase === 'ended') onState(game.serialize(myId));
     if (!FILE && isHost) {
       const hellos = {};
-      for (const id of game.clients.keys()) hellos[id] = game.hello(id);
+      const states = {};
+      for (const id of game.clients.keys()) {
+        hellos[id] = game.hello(id);
+        if (game.phase === 'playing' || game.phase === 'ended') states[id] = game.serialize(id);
+      }
       lanPost('api/snap', {
         hellos,
-        state: (game.phase === 'playing' || game.phase === 'ended') ? game.serialize() : null
+        states,
+        state: states[myId] || null
       });
     }
   }
@@ -149,7 +154,8 @@
             onHello(Object.assign({}, any, { id: myId, players: (any.players || []).map(p => Object.assign({}, p, { you: p.id === myId })) }));
           }
         }
-        if (snap.state) onState(snap.state);
+        if (snap.states && snap.states[myId]) onState(snap.states[myId]);
+        else if (snap.state) onState(snap.state);
       } catch (_) { /* ignore */ }
     }, 90);
   }
@@ -197,6 +203,8 @@
       id: c[0], owner: c[1], cap: c[2] / 100, capFac: c[3] || null,
       queue: (c[4] || []).map(q => ({ type: q[0], left: q[1] })),
       rally: { x: c[5], y: c[6] },
+      factory: c[7] || 0, barracks: c[8] || 0, depot: c[9] || 0,
+      upg: c[10] || null,
       x: 0, y: 0
     }));
     for (const c of cities) {
@@ -204,12 +212,14 @@
       c.x = p.x; c.y = p.y;
     }
     const units = (msg.units || []).map(u => ({
-      id: u[0], type: u[1], fac: u[2], x: u[3], y: u[4], hp: u[5], ang: u[6], supplied: !!u[7]
+      id: u[0], type: u[1], fac: u[2], x: u[3], y: u[4], hp: u[5], ang: u[6], supplied: !!u[7], ent: u[8] || 0
     }));
     return {
       phase: msg.phase, tick: msg.tick, day: msg.day,
+      season: msg.season, fog: !!msg.fog, cease: msg.cease || 0,
       winner: msg.winner, winText: msg.winText,
-      res: msg.res, pop: msg.pop,
+      res: msg.res, pop: msg.pop, vp: msg.vp, hold: msg.hold,
+      net: msg.net, owned: msg.owned, starved: msg.starved,
       cities, units, shots: msg.shots || [], deaths: msg.deaths || [],
       alerts: msg.alerts || []
     };
@@ -358,10 +368,24 @@
     $('r-m').textContent = r.m;
     $('r-o').textContent = r.o;
     $('r-pop').textContent = st.pop[myFac];
-    $('hud-day').textContent = 'روز ' + st.day + ' — ژوئن ۱۹۴۱';
+    const sea = st.season || OST.season(st.day);
+    $('hud-day').textContent = 'روز ' + st.day + ' — ' + OST.seasonFa(sea);
     const netEl = $('r-net');
     if (netEl && st.net && st.owned) {
       netEl.textContent = st.net[myFac] + '/' + st.owned[myFac];
+    }
+    const vpEl = $('r-vp');
+    if (vpEl && st.vp) {
+      vpEl.textContent = st.vp[myFac] + '/' + OST.VP_WIN;
+      if (st.hold && st.hold[myFac] > 0) vpEl.parentElement.style.color = '#e0c070';
+      else vpEl.parentElement.style.color = '';
+    }
+    const ce = $('cease');
+    if (ce) {
+      if (st.cease > 0) {
+        ce.classList.remove('hidden');
+        ce.textContent = 'آتش‌بس ' + st.cease + 'ث — تولید کن، محور را بچین';
+      } else ce.classList.add('hidden');
     }
     if (st.starved && st.starved[myFac]) {
       $('r-o').parentElement.style.color = '#e07070';
@@ -419,7 +443,13 @@
     $('prod').classList.remove('hidden');
     const proto = OST.cityById(city.id);
     $('prod-name').textContent = proto.nameFa;
-    $('prod-own').textContent = proto.capital ? 'پایتخت' : 'شهر';
+    const bits = [];
+    if (proto.capital) bits.push('پایتخت');
+    bits.push((proto.vp || 1) + ' امتیاز');
+    if (city.factory) bits.push('کارخانه ' + city.factory);
+    if (city.barracks) bits.push('سربازخانه ' + city.barracks);
+    if (city.depot) bits.push('انبار');
+    $('prod-own').textContent = bits.join(' · ');
     const types = roster(myFac);
     const box = $('prod-cards');
     if (box.childElementCount !== types.length) {
@@ -446,14 +476,52 @@
       }
     }
     const r = st.res[myFac];
+    const slots = 3 + (city.factory || 0);
     for (const b of box.children) {
       const d = UNIT_TYPES[b.dataset.type];
-      const ok = r.i >= d.cost.i && r.m >= d.cost.m && r.o >= d.cost.o && st.pop[myFac] + d.pop <= POP_CAP && city.queue.length < 3;
+      const can = d.cls === 'inf' ? city.barracks >= 1
+        : d.cls === 'at' ? (city.barracks >= 1 || city.factory >= 1)
+        : city.factory >= 1;
+      const ok = can && r.i >= d.cost.i && r.m >= d.cost.m && r.o >= d.cost.o && st.pop[myFac] + d.pop <= POP_CAP && city.queue.length < slots;
       b.classList.toggle('off', !ok);
+      b.title = can ? '' : (d.cls === 'inf' ? 'سربازخانه لازم است' : 'کارخانه لازم است');
     }
     $('prod-q').textContent = city.queue.length
-      ? 'صف: ' + city.queue.map(q => UNIT_TYPES[q.type].nameFa + ' ' + q.left + 'ث').join(' ← ')
+      ? 'صف: ' + city.queue.map(q => UNIT_TYPES[q.type].nameFa + ' ' + Math.ceil(q.left) + 'ث').join(' ← ')
       : 'صف خالی';
+    const up = $('prod-upg');
+    if (up) {
+      const keys = Object.keys(OST.UPGRADES);
+      if (up.childElementCount !== keys.length) {
+        up.innerHTML = '';
+        for (const k of keys) {
+          const spec = OST.UPGRADES[k];
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'ubtn';
+          b.dataset.what = k;
+          b.onclick = () => {
+            send({ t: 'cmd', c: { k: 'upgrade', city: selectedCity, what: k } });
+            beep(260, 0.06, 'triangle', 0.03);
+          };
+          up.appendChild(b);
+        }
+      }
+      for (const b of up.children) {
+        const k = b.dataset.what;
+        const spec = OST.UPGRADES[k];
+        const n = city[k] || 0;
+        const busy = !!city.upg;
+        const maxed = n >= spec.max;
+        b.textContent = spec.nameFa + ' ' + n + '/' + spec.max + ' · ' + spec.i + '⚙';
+        b.disabled = busy || maxed || r.i < spec.i;
+        b.classList.toggle('off', b.disabled);
+      }
+      if (city.upg) {
+        const spec = OST.UPGRADES[city.upg[0]];
+        $('prod-q').textContent += '  |  ساخت ' + (spec ? spec.nameFa : city.upg[0]) + ' ' + city.upg[1] + 'ث';
+      }
+    }
   }
 
   function refreshSel(st) {
@@ -686,10 +754,10 @@
     if (!isHost || !game) return;
     if (game.phase === 'playing') {
       game.tick(1 / OST.TICK);
-      onState(game.serialize());
+      onState(game.serialize(myId));
       if (!FILE) emit();
     } else if (game.phase === 'ended') {
-      onState(game.serialize());
+      onState(game.serialize(myId));
       if (game.endedAt && Date.now() - game.endedAt > 14000) {
         game.resetMenu();
         emit();

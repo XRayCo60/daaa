@@ -208,17 +208,25 @@ class Game {
       ger: { i: 90, m: 120, o: 200 },
       sov: { i: 80, m: 160, o: 90 }
     };
+    this.vpHold = { ger: 0, sov: 0 };
+    this.events = { siberia: false, mud: false, winter: false };
     this.cities = CITIES.map(c => ({
       id: c.id, x: c.x, y: c.y,
       owner: c.owner,
       cap: 0,
       capFac: null,
       queue: [],
-      rally: { x: c.x + (c.owner === 'ger' ? 70 : -70), y: c.y },
-      lastAlert: 0
+      rally: { x: c.x + (c.owner === 'ger' ? 80 : -80), y: c.y },
+      lastAlert: 0,
+      factory: c.factory || 0,
+      barracks: c.barracks || 0,
+      depot: c.depot || 0,
+      upg: null,
+      fort: 0
     }));
     this.units = [];
     this._spawnInitial();
+    this.alerts.push({ fac: null, text: 'آتش‌بس عملیاتی — ' + OST.CEASEFIRE + ' ثانیه تا گشودن آتش. تولید کن، محور را بچین.', ttl: 8 });
   }
 
   _spawn(type, fac, x, y) {
@@ -241,7 +249,8 @@ class Game {
       targetId: 0,
       cd: 0,
       salvoLeft: def.salvo || 0,
-      supplied: true
+      supplied: true,
+      ent: 0
     };
     this.units.push(u);
     return u;
@@ -263,7 +272,8 @@ class Game {
       ['grenadier', 'ger', C('konigsberg').x, C('konigsberg').y, 2],
       ['grenadier', 'ger', C('krakow').x, C('krakow').y, 1],
       ['grenadier', 'ger', C('berlin').x + 40, C('berlin').y, 1],
-      ['panzer4', 'ger', C('warsaw').x + 50, C('warsaw').y - 20, 1]
+      ['panzer4', 'ger', C('warsaw').x + 50, C('warsaw').y - 20, 1],
+      ['pak40', 'ger', C('warsaw').x - 30, C('warsaw').y + 40, 1]
     ]);
     scatter([
       ['strelok', 'sov', C('brest').x, C('brest').y, 1],
@@ -274,7 +284,8 @@ class Game {
       ['strelok', 'sov', C('kiev').x, C('kiev').y, 2],
       ['strelok', 'sov', C('smolensk').x, C('smolensk').y, 1],
       ['strelok', 'sov', C('leningrad').x, C('leningrad').y, 1],
-      ['strelok', 'sov', C('moscow').x, C('moscow').y, 1]
+      ['strelok', 'sov', C('moscow').x, C('moscow').y, 1],
+      ['zis3', 'sov', C('kiev').x - 20, C('kiev').y + 30, 1]
     ]);
   }
 
@@ -313,6 +324,7 @@ class Game {
     else if (cmd.k === 'stop') this._stop(fac, cmd.ids);
     else if (cmd.k === 'produce') this._produce(fac, cmd.city, cmd.type);
     else if (cmd.k === 'rally') this._rally(fac, cmd.city, cmd.x, cmd.y);
+    else if (cmd.k === 'upgrade') this._upgrade(fac, cmd.city, cmd.what);
   }
 
   _mine(fac, ids) {
@@ -352,19 +364,40 @@ class Game {
     city.rally = { x, y };
   }
 
+  _canMake(city, def) {
+    if (def.cls === 'inf') return city.barracks >= 1;
+    if (def.cls === 'at') return city.barracks >= 1 || city.factory >= 1;
+    return city.factory >= 1;
+  }
+
   _produce(fac, cityId, type) {
     const def = UNIT_TYPES[type];
     if (!def || def.faction !== fac) return;
     const city = this.cities.find(c => c.id === cityId);
     if (!city || city.owner !== fac) return;
-    if (city.queue.length >= 3) return;
+    if (!this._canMake(city, def)) return;
+    const slots = 3 + (city.factory || 0);
+    if (city.queue.length >= slots) return;
     if (this.pop(fac) + def.pop > POP_CAP) return;
     const r = this.res[fac];
     if (r.i < def.cost.i || r.m < def.cost.m || r.o < def.cost.o) return;
     r.i -= def.cost.i;
     r.m -= def.cost.m;
     r.o -= def.cost.o;
-    city.queue.push({ type, left: def.build });
+    const spd = 1 + (city.factory || 0) * 0.16 + (def.cls === 'inf' ? (city.barracks || 0) * 0.18 : 0);
+    city.queue.push({ type, left: def.build / spd });
+  }
+
+  _upgrade(fac, cityId, what) {
+    const spec = OST.UPGRADES[what];
+    if (!spec) return;
+    const city = this.cities.find(c => c.id === cityId);
+    if (!city || city.owner !== fac || city.upg) return;
+    if ((city[what] || 0) >= spec.max) return;
+    const r = this.res[fac];
+    if (r.i < spec.i) return;
+    r.i -= spec.i;
+    city.upg = { what, left: spec.t };
   }
 
   tick(dt) {
@@ -377,7 +410,13 @@ class Game {
       this.acc -= 1;
       this._income();
       this._fuel();
-      if (this.tickN % (OST.TICK * 25) === 0) this.day++;
+      if (this.tickN % (OST.TICK * 25) === 0) {
+        this.day++;
+        this._seasonEvents();
+      }
+    }
+    if (this.tickN === OST.CEASEFIRE * OST.TICK) {
+      this.alerts.push({ fac: null, text: 'آتش‌بس تمام شد — آتش آزاد', ttl: 6 });
     }
     this._production(dt);
     this._supply();
@@ -405,14 +444,52 @@ class Game {
       const net = c.owner === 'ger' ? netG : netS;
       const mul = net.has(c.id) ? 1 : 0.35;
       const r = this.res[c.owner];
-      r.i += proto.i * mul;
-      r.m += proto.m * mul;
-      r.o += proto.o * mul;
+      r.i += proto.i * mul * (1 + (c.factory || 0) * 0.12);
+      r.m += proto.m * mul * (1 + (c.barracks || 0) * 0.08);
+      r.o += proto.o * mul * (1 + (c.depot || 0) * 0.28);
+      if (c.depot && net.has(c.id)) r.o += 0.14;
     }
     for (const f of ['ger', 'sov']) {
       this.res[f].i = Math.min(999, this.res[f].i);
       this.res[f].m = Math.min(999, this.res[f].m);
       this.res[f].o = Math.min(999, this.res[f].o);
+    }
+  }
+
+  _vpOf(fac) {
+    let v = 0;
+    for (const c of this.cities) {
+      if (c.owner === fac) v += OST.cityById(c.id).vp || 0;
+    }
+    return v;
+  }
+
+  _seasonEvents() {
+    const s = OST.season(this.day);
+    if (s === 'mud' && !this.events.mud) {
+      this.events.mud = true;
+      this.alerts.push({ fac: null, text: 'گل‌آلود — جاده‌ها بسته، راه‌آهن هنوز باز است', ttl: 7 });
+    }
+    if (s === 'winter' && !this.events.winter) {
+      this.events.winter = true;
+      this.alerts.push({ fac: null, text: 'زمستان رسید — موتورها یخ می‌زنند', ttl: 7 });
+    }
+    if (this.day >= 18 && !this.events.siberia) {
+      this.events.siberia = true;
+      const hub = this.cities.find(c => c.id === 'moscow' && c.owner === 'sov')
+        || this.cities.find(c => c.id === 'gorky' && c.owner === 'sov')
+        || this.cities.find(c => c.owner === 'sov');
+      if (hub) {
+        const room = Math.max(0, POP_CAP - this.pop('sov'));
+        let left = room;
+        for (let i = 0; i < 4 && left >= 1; i++) {
+          const a = i * 1.5;
+          this._spawn('strelok', 'sov', hub.x + Math.cos(a) * 40, hub.y + Math.sin(a) * 40);
+          left -= 1;
+        }
+        if (left >= 2) this._spawn('t34', 'sov', hub.x + 50, hub.y);
+        this.alerts.push({ fac: null, text: 'لشکرهای سیبری به جبهه رسیدند', ttl: 7 });
+      }
     }
   }
 
@@ -437,6 +514,19 @@ class Game {
 
   _production(dt) {
     for (const city of this.cities) {
+      if (city.upg) {
+        city.upg.left -= dt;
+        if (city.upg.left <= 0) {
+          const w = city.upg.what;
+          city[w] = (city[w] || 0) + 1;
+          city.upg = null;
+          this.alerts.push({
+            fac: city.owner,
+            text: OST.cityById(city.id).nameFa + ' — ' + (OST.UPGRADES[w] ? OST.UPGRADES[w].nameFa : w) + ' آماده',
+            ttl: 4
+          });
+        }
+      }
       if (!city.queue.length) continue;
       const q = city.queue[0];
       q.left -= dt;
@@ -463,7 +553,9 @@ class Game {
       let ok = false;
       const net = nets[u.fac];
       for (const c of this.cities) {
-        if (c.owner === u.fac && net.has(c.id) && OST.dist(u, c) < 400) { ok = true; break; }
+        if (c.owner !== u.fac || !net.has(c.id)) continue;
+        const reach = 380 + (c.depot ? 180 : 0);
+        if (OST.dist(u, c) < reach) { ok = true; break; }
       }
       u.supplied = ok;
     }
@@ -484,22 +576,32 @@ class Game {
       }
       const dx = u.tx - u.x, dy = u.ty - u.y;
       const d = Math.hypot(dx, dy);
-      const holdArt = def.cls === 'art' && u.cd > 0 && u.order !== 'move';
-      if (holdArt) continue;
-      // artillery stop to fire if enemy in range
-      if (def.cls === 'art' && u.order !== 'move') {
+      const holdGun = (def.cls === 'art' || def.cls === 'at') && u.cd > 0 && u.order !== 'move';
+      if (holdGun) continue;
+      if ((def.cls === 'art' || def.cls === 'at') && u.order !== 'move') {
         const enemy = this._closestEnemy(u, def.range);
         if (enemy) continue;
       }
       if (d < 8) {
         if (u.order === 'move') u.order = 'idle';
+        if (def.cls !== 'air') u.ent = Math.min(1, (u.ent || 0) + dt / (def.cls === 'inf' || def.cls === 'at' ? 6 : 10));
         continue;
       }
+      u.ent = Math.max(0, (u.ent || 0) - dt * 2);
       let ang = Math.atan2(dy, dx);
       const sup = u.supplied ? 1 : 0.55;
       const fuel = (this.starved[u.fac] && (def.cls === 'tank' || def.cls === 'air' || def.cls === 'art')) ? 0.38 : 1;
       const rail = (def.cls !== 'air' && OST.onRail(u.x, u.y)) ? 1.45 : 1;
-      const spd = def.speed * OST.terrainFactor(u.x, u.y, def.cls) * sup * fuel * rail;
+      const sea = OST.season(this.day);
+      let weather = 1;
+      if (def.cls !== 'air') {
+        if (sea === 'mud' && rail < 1.2) weather = 0.5;
+        if (sea === 'winter') {
+          weather = def.cls === 'inf' ? 0.82 : 0.66;
+          if (u.fac === 'ger') weather *= 0.88;
+        }
+      }
+      const spd = def.speed * OST.terrainFactor(u.x, u.y, def.cls) * sup * fuel * rail * weather;
       let nx = u.x + Math.cos(ang) * spd * dt;
       let ny = u.y + Math.sin(ang) * spd * dt;
       if (def.cls !== 'air' && OST.isWater(nx, ny)) {
@@ -569,6 +671,8 @@ class Game {
       if (def.cls === 'air' && ecl === 'tank') s *= 0.45;
       if (def.cls === 'tank' && ecl === 'art') s *= 0.65;
       if (def.cls === 'art' && ecl === 'inf') s *= 0.8;
+      if (def.cls === 'at' && ecl === 'tank') s *= 0.32;
+      if (def.cls === 'tank' && ecl === 'at') s *= 0.55;
       if (s < score) { score = s; best = e; }
     }
     return best;
@@ -576,6 +680,7 @@ class Game {
 
   _combat(dt) {
     for (const u of this.units) u.cd = Math.max(0, u.cd - dt);
+    if (this.tickN < OST.CEASEFIRE * OST.TICK) return;
     const dead = new Set();
     for (const u of this.units) {
       if (dead.has(u.id)) continue;
@@ -594,7 +699,8 @@ class Game {
       const sup = u.supplied ? 1 : 0.6;
       const armor = UNIT_TYPES[tgt.type].armor;
       const pen = 1 - armor / (armor + 10);
-      const dmg = def.atk * vs * pen * movePen * sup;
+      const cover = 1 - (tgt.ent || 0) * 0.4;
+      const dmg = def.atk * vs * pen * movePen * sup * cover;
       tgt.hp -= dmg;
       this.shots.push([u.x, u.y, tgt.x, tgt.y, u.fac, def.cls]);
       if (def.splash) {
@@ -622,6 +728,7 @@ class Game {
   }
 
   _capture(dt) {
+    if (this.tickN < OST.CEASEFIRE * OST.TICK) return;
     for (const city of this.cities) {
       let ger = 0, sov = 0;
       for (const u of this.units) {
@@ -635,7 +742,8 @@ class Game {
       const def = city.owner === 'ger' ? ger : sov;
       if (atkFac && atkFac !== city.owner && atk > 0.4) {
         city.capFac = atkFac;
-        city.cap = Math.min(1, city.cap + dt * (0.07 + atk * 0.035));
+        const fort = 1 + (city.barracks || 0) * 0.15 + (city.depot || 0) * 0.25 + (city.factory || 0) * 0.08;
+        city.cap = Math.min(1, city.cap + dt * (0.07 + atk * 0.035) / fort);
         if (city.cap >= 1) {
           const prev = city.owner;
           city.owner = atkFac;
@@ -696,11 +804,27 @@ class Game {
       this.winText = 'ورماخت از هم پاشید';
       this.phase = 'ended';
       this.endedAt = Date.now();
-    } else if (sovC === 0 && !sovU) {
+      return;
+    }
+    if (sovC === 0 && !sovU) {
       this.winner = 'ger';
       this.winText = 'ارتش سرخ از هم پاشید';
       this.phase = 'ended';
       this.endedAt = Date.now();
+      return;
+    }
+    const dt = 1 / OST.TICK;
+    for (const f of ['ger', 'sov']) {
+      const v = this._vpOf(f);
+      if (v >= OST.VP_WIN) this.vpHold[f] += dt;
+      else this.vpHold[f] = 0;
+      if (this.vpHold[f] >= 30) {
+        this.winner = f;
+        this.winText = f === 'ger' ? 'ورماخت جبهه را قفل کرد' : 'ارتش سرخ جبهه را قفل کرد';
+        this.phase = 'ended';
+        this.endedAt = Date.now();
+        return;
+      }
     }
   }
 
@@ -710,14 +834,15 @@ class Game {
     const me = this.aiFac;
     if (!me) return;
     this._aiProduce(me);
+    this._aiUpgrade(me);
     this._aiOrders(me);
   }
 
   _aiProduce(me) {
     const mine = this.units.filter(u => u.fac === me);
     const enemy = this.units.filter(u => u.fac !== me);
-    const counts = { inf: 0, tank: 0, art: 0, air: 0 };
-    const eCounts = { inf: 0, tank: 0, art: 0, air: 0 };
+    const counts = { inf: 0, tank: 0, art: 0, air: 0, at: 0 };
+    const eCounts = { inf: 0, tank: 0, art: 0, air: 0, at: 0 };
     for (const u of mine) counts[UNIT_TYPES[u.type].cls]++;
     for (const u of enemy) eCounts[UNIT_TYPES[u.type].cls]++;
     const types = OST.roster(me);
@@ -725,6 +850,7 @@ class Game {
     const oilLow = r.o < 40;
     const want = [];
     if (counts.inf < 8) want.push(types.find(t => UNIT_TYPES[t].cls === 'inf'));
+    if (eCounts.tank >= 1 && counts.at < 3) want.push(types.find(t => UNIT_TYPES[t].cls === 'at'));
     if (!oilLow && counts.tank < (eCounts.tank + 2)) {
       want.push(types.find(t => UNIT_TYPES[t].cls === 'tank' && t !== 'tiger' && t !== 'kv1'));
       if (eCounts.tank >= 4) want.push(types.find(t => t === 'tiger' || t === 'kv1'));
@@ -761,6 +887,20 @@ class Game {
         if (r.i >= d.cost.i && r.m >= d.cost.m) pick = inf;
       }
       if (pick) this._produce(me, city.id, pick);
+    }
+  }
+
+  _aiUpgrade(me) {
+    if (this.res[me].i < 45) return;
+    const cities = this.cities.filter(c => c.owner === me && !c.upg);
+    for (const city of cities) {
+      if (city.factory < 1 && this.res[me].i >= 80) { this._upgrade(me, city.id, 'factory'); return; }
+    }
+    for (const city of cities) {
+      if (city.depot < 1 && city.factory >= 1 && this.res[me].i >= 60) { this._upgrade(me, city.id, 'depot'); return; }
+    }
+    for (const city of cities) {
+      if (city.barracks < 2 && this.res[me].i >= 90) { this._upgrade(me, city.id, 'barracks'); return; }
     }
   }
 
@@ -858,8 +998,8 @@ class Game {
 
   _aiObjective(me, theirCities, myCities) {
     const chain = me === 'ger'
-      ? ['minsk', 'smolensk', 'moscow', 'kiev', 'kharkov', 'stalingrad', 'baku', 'leningrad']
-      : ['minsk', 'warsaw', 'berlin', 'kiev', 'krakow', 'riga', 'konigsberg'];
+      ? ['brest', 'kaunas', 'lvov', 'minsk', 'smolensk', 'kiev', 'moscow', 'kharkov', 'stalingrad', 'baku', 'leningrad']
+      : ['brest', 'lublin', 'warsaw', 'kaunas', 'krakow', 'berlin', 'riga', 'konigsberg'];
     for (const id of chain) {
       const c = this.cities.find(x => x.id === id && x.owner !== me);
       if (c) return c;
@@ -875,32 +1015,86 @@ class Game {
     return best;
   }
 
-  serialize() {
+  _visR(u) {
+    const cls = UNIT_TYPES[u.type].cls;
+    if (cls === 'air') return 420;
+    if (cls === 'at') return 280;
+    if (cls === 'tank') return 260;
+    if (cls === 'art') return 200;
+    return 230;
+  }
+
+  _seen(x, y, fac) {
+    for (const u of this.units) {
+      if (u.fac !== fac) continue;
+      if (Math.hypot(u.x - x, u.y - y) < this._visR(u)) return true;
+    }
+    for (const c of this.cities) {
+      if (c.owner !== fac) continue;
+      const r = 300 + (c.depot ? 80 : 0) + (OST.cityById(c.id).capital ? 80 : 0);
+      if (Math.hypot(c.x - x, c.y - y) < r) return true;
+    }
+    return false;
+  }
+
+  serialize(pid) {
+    const viewer = pid ? this.clients.get(pid) : null;
+    const fac = viewer && viewer.faction;
+    const open = this.phase === 'ended' || !fac;
+    const netG = this._network('ger');
+    const netS = this._network('sov');
+    const ownedG = this.cities.filter(c => c.owner === 'ger').length;
+    const ownedS = this.cities.filter(c => c.owner === 'sov').length;
+    const cease = Math.max(0, Math.ceil(OST.CEASEFIRE - this.tickN / OST.TICK));
+    const units = this.units.filter(u => open || u.fac === fac || this._seen(u.x, u.y, fac));
+    const shots = (this.shots || []).filter(s => open || !fac || this._seen(s[0], s[1], fac) || this._seen(s[2], s[3], fac));
+    const show = (side) => open || fac === side;
     return {
       t: 'state',
       phase: this.phase,
       tick: this.tickN,
       day: this.day,
+      season: OST.season(this.day),
       winner: this.winner,
       winText: this.winText,
-      res: {
-        ger: { i: Math.floor(this.res.ger.i), m: Math.floor(this.res.ger.m), o: Math.floor(this.res.ger.o) },
-        sov: { i: Math.floor(this.res.sov.i), m: Math.floor(this.res.sov.m), o: Math.floor(this.res.sov.o) }
+      fog: !open,
+      cease,
+      vp: { ger: this._vpOf('ger'), sov: this._vpOf('sov') },
+      hold: { ger: Math.floor(this.vpHold.ger || 0), sov: Math.floor(this.vpHold.sov || 0) },
+      net: { ger: netG.size, sov: netS.size },
+      owned: { ger: ownedG, sov: ownedS },
+      starved: {
+        ger: show('ger') ? !!this.starved.ger : false,
+        sov: show('sov') ? !!this.starved.sov : false
       },
-      pop: { ger: this.pop('ger'), sov: this.pop('sov') },
+      res: {
+        ger: show('ger')
+          ? { i: Math.floor(this.res.ger.i), m: Math.floor(this.res.ger.m), o: Math.floor(this.res.ger.o) }
+          : { i: 0, m: 0, o: 0 },
+        sov: show('sov')
+          ? { i: Math.floor(this.res.sov.i), m: Math.floor(this.res.sov.m), o: Math.floor(this.res.sov.o) }
+          : { i: 0, m: 0, o: 0 }
+      },
+      pop: {
+        ger: show('ger') ? this.pop('ger') : 0,
+        sov: show('sov') ? this.pop('sov') : 0
+      },
       cities: this.cities.map(c => [
         c.id, c.owner, Math.round(c.cap * 100), c.capFac || '',
-        c.queue.map(q => [q.type, Math.ceil(q.left)]),
-        Math.round(c.rally.x), Math.round(c.rally.y)
+        (open || c.owner === fac) ? c.queue.map(q => [q.type, Math.ceil(q.left)]) : [],
+        Math.round(c.rally.x), Math.round(c.rally.y),
+        c.factory || 0, c.barracks || 0, c.depot || 0,
+        (open || c.owner === fac) && c.upg ? [c.upg.what, Math.ceil(c.upg.left)] : null
       ]),
-      units: this.units.map(u => [
+      units: units.map(u => [
         u.id, u.type, u.fac,
         Math.round(u.x * 10) / 10, Math.round(u.y * 10) / 10,
         Math.round(u.hp), Math.round(u.ang * 100) / 100,
-        u.supplied ? 1 : 0
+        u.supplied ? 1 : 0,
+        Math.round((u.ent || 0) * 10) / 10
       ]),
-      shots: this.shots,
-      deaths: this.deaths,
+      shots,
+      deaths: open || !fac ? this.deaths : this.deaths.filter(d => this._seen(d[0], d[1], fac)),
       alerts: this.alerts.map(a => ({ fac: a.fac, text: a.text }))
     };
   }

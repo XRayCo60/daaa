@@ -86,73 +86,117 @@
       faction: 'ger', cls: 'inf', name: 'Grenadier', nameFa: 'گرنادیر', roleFa: 'پیاده',
       cost: { i: 10, m: 48, o: 0 }, build: 9,
       hp: 120, speed: 18, range: 70, atk: 10, armor: 1, cd: 0.65,
-      vs: { inf: 1, tank: 0.28, art: 1.05, air: 0.38 },
+      vs: { inf: 1, tank: 0.28, art: 1.05, air: 0.38, at: 0.7 },
       capture: 1, radius: 9, pop: 1, burn: 0
     },
     panzer4: {
       faction: 'ger', cls: 'tank', name: 'Panzer IV', nameFa: 'پانزر ۴', roleFa: 'تانک متوسط',
       cost: { i: 96, m: 18, o: 28 }, build: 16,
       hp: 240, speed: 26, range: 96, atk: 20, armor: 7, cd: 1.05,
-      vs: { inf: 1.35, tank: 1, art: 1.2, air: 0.18 },
+      vs: { inf: 1.35, tank: 1, art: 1.2, air: 0.18, at: 1.1 },
       capture: 0.35, radius: 15, pop: 2, burn: 0.16
     },
     tiger: {
       faction: 'ger', cls: 'tank', name: 'Tiger I', nameFa: 'ببر', roleFa: 'تانک سنگین',
       cost: { i: 190, m: 24, o: 62 }, build: 28,
       hp: 440, speed: 16, range: 118, atk: 38, armor: 13, cd: 1.35,
-      vs: { inf: 1.15, tank: 1.55, art: 1.25, air: 0.15 },
+      vs: { inf: 1.15, tank: 1.55, art: 1.25, air: 0.15, at: 1.2 },
       capture: 0.25, radius: 18, pop: 3, burn: 0.28
     },
     wespe: {
       faction: 'ger', cls: 'art', name: 'Wespe', nameFa: 'وسپه', roleFa: 'توپخانه',
       cost: { i: 70, m: 14, o: 10 }, build: 15,
       hp: 140, speed: 15, range: 230, atk: 22, armor: 3, cd: 2.4,
-      vs: { inf: 1.7, tank: 0.72, art: 1.1, air: 0.05 },
+      vs: { inf: 1.7, tank: 0.72, art: 1.1, air: 0.05, at: 0.9 },
       capture: 0.15, radius: 13, pop: 2, splash: 42, burn: 0.06
     },
     stuka: {
       faction: 'ger', cls: 'air', name: 'Ju 87 Stuka', nameFa: 'اشتوکا', roleFa: 'هوایی',
       cost: { i: 86, m: 10, o: 32 }, build: 18,
       hp: 95, speed: 72, range: 86, atk: 28, armor: 1, cd: 1.6,
-      vs: { inf: 1.1, tank: 2.1, art: 1.4, air: 0.4 },
+      vs: { inf: 1.1, tank: 2.1, art: 1.4, air: 0.4, at: 1.3 },
       capture: 0, radius: 14, pop: 2, burn: 0.22
     },
     strelok: {
       faction: 'sov', cls: 'inf', name: 'Strelok', nameFa: 'تفنگدار', roleFa: 'پیاده',
       cost: { i: 8, m: 38, o: 0 }, build: 8,
       hp: 108, speed: 19, range: 68, atk: 9, armor: 1, cd: 0.62,
-      vs: { inf: 1, tank: 0.26, art: 1.05, air: 0.36 },
+      vs: { inf: 1, tank: 0.26, art: 1.05, air: 0.36, at: 0.7 },
       capture: 1, radius: 9, pop: 1, burn: 0
     },
     t34: {
       faction: 'sov', cls: 'tank', name: 'T-34', nameFa: 'تی-۳۴', roleFa: 'تانک متوسط',
       cost: { i: 74, m: 16, o: 20 }, build: 13,
       hp: 215, speed: 30, range: 90, atk: 18, armor: 6, cd: 0.95,
-      vs: { inf: 1.3, tank: 1, art: 1.15, air: 0.18 },
+      vs: { inf: 1.3, tank: 1, art: 1.15, air: 0.18, at: 1.05 },
       capture: 0.35, radius: 14, pop: 2, burn: 0.14
     },
     kv1: {
       faction: 'sov', cls: 'tank', name: 'KV-1', nameFa: 'کی‌وی-۱', roleFa: 'تانک سنگین',
       cost: { i: 160, m: 22, o: 46 }, build: 24,
       hp: 410, speed: 15, range: 108, atk: 32, armor: 12, cd: 1.3,
-      vs: { inf: 1.1, tank: 1.4, art: 1.2, air: 0.15 },
+      vs: { inf: 1.1, tank: 1.4, art: 1.2, air: 0.15, at: 1.15 },
       capture: 0.25, radius: 18, pop: 3, burn: 0.24
     },
     katyusha: {
       faction: 'sov', cls: 'art', name: 'BM-13 Katyusha', nameFa: 'کاتیوشا', roleFa: 'راکت‌انداز',
       cost: { i: 64, m: 14, o: 16 }, build: 15,
       hp: 125, speed: 22, range: 250, atk: 16, armor: 2, cd: 0.12,
-      vs: { inf: 1.85, tank: 0.85, art: 1.15, air: 0.05 },
+      vs: { inf: 1.85, tank: 0.85, art: 1.15, air: 0.05, at: 0.9 },
       capture: 0.12, radius: 13, pop: 2, splash: 50, salvo: 8, salvoReload: 7.5, burn: 0.08
     },
     il2: {
       faction: 'sov', cls: 'air', name: 'Il-2', nameFa: 'ایل-۲', roleFa: 'هوایی',
       cost: { i: 78, m: 10, o: 24 }, build: 17,
       hp: 115, speed: 66, range: 80, atk: 24, armor: 2, cd: 1.45,
-      vs: { inf: 1.35, tank: 1.7, art: 1.3, air: 0.4 },
+      vs: { inf: 1.35, tank: 1.7, art: 1.3, air: 0.4, at: 1.2 },
       capture: 0, radius: 14, pop: 2, burn: 0.18
+    },
+    pak40: {
+      faction: 'ger', cls: 'at', name: 'PaK 40', nameFa: 'پاک ۴۰', roleFa: 'ضدتانک',
+      cost: { i: 42, m: 12, o: 4 }, build: 11,
+      hp: 90, speed: 14, range: 130, atk: 26, armor: 2, cd: 1.5,
+      vs: { inf: 0.35, tank: 2.6, art: 0.7, air: 0.08, at: 1 },
+      capture: 0.1, radius: 11, pop: 1, burn: 0.03
+    },
+    zis3: {
+      faction: 'sov', cls: 'at', name: 'ZiS-3', nameFa: 'زیس-۳', roleFa: 'ضدتانک',
+      cost: { i: 36, m: 10, o: 3 }, build: 10,
+      hp: 85, speed: 15, range: 125, atk: 22, armor: 2, cd: 1.35,
+      vs: { inf: 0.4, tank: 2.3, art: 0.7, air: 0.08, at: 1 },
+      capture: 0.1, radius: 11, pop: 1, burn: 0.03
     }
   };
+
+  const VP = {
+    berlin: 8, moscow: 8, leningrad: 3, stalingrad: 3, baku: 3,
+    kiev: 2, warsaw: 2
+  };
+  const CEASEFIRE = 40;
+  const VP_WIN = 24;
+  const UPGRADES = {
+    factory: { i: 80, t: 18, max: 2, nameFa: 'کارخانه' },
+    barracks: { i: 45, t: 12, max: 2, nameFa: 'سربازخانه' },
+    depot: { i: 60, t: 15, max: 1, nameFa: 'انبار' }
+  };
+
+  CITIES.forEach(c => {
+    c.vp = VP[c.id] || 0;
+    c.barracks = 1;
+    c.depot = 0;
+    c.factory = 0;
+    if (c.id === 'berlin' || c.id === 'moscow') { c.factory = 2; c.depot = 1; }
+    else if (c.id === 'gorky' || c.id === 'kharkov' || c.id === 'warsaw' || c.id === 'stalingrad' || c.id === 'leningrad') c.factory = 1;
+  });
+
+  function season(day) {
+    if (day < 16) return 'summer';
+    if (day < 28) return 'mud';
+    return 'winter';
+  }
+  function seasonFa(s) {
+    return s === 'summer' ? 'تابستان · خشک' : s === 'mud' ? 'گل‌آلود' : 'زمستان';
+  }
 
   function roster(fac) {
     return Object.keys(UNIT_TYPES).filter(k => UNIT_TYPES[k].faction === fac);
@@ -241,7 +285,7 @@
   function terrainFactor(x, y, cls) {
     if (cls === 'air') return 1;
     if (isWater(x, y)) return 0.08;
-    if (inMarsh(x, y)) return cls === 'tank' || cls === 'art' ? 0.38 : 0.64;
+    if (inMarsh(x, y)) return cls === 'tank' || cls === 'art' || cls === 'at' ? 0.38 : 0.64;
     if (inCaucasus(x, y)) return 0.5;
     if (inForest(x, y)) return 0.7;
     return 1;
@@ -257,10 +301,10 @@
   }
 
   return {
-    WORLD, TICK, POP_CAP, CITY_R,
+    WORLD, TICK, POP_CAP, CITY_R, CEASEFIRE, VP_WIN, UPGRADES,
     FACTIONS, CITIES, CONNECTIONS, UNIT_TYPES,
     roster, dist, clamp, cityById, neighbors, pathCities,
     isWater, inMarsh, inCaucasus, inForest, terrainFactor, nearestCity,
-    onRail, distToSeg
+    onRail, distToSeg, season, seasonFa
   };
 }));
