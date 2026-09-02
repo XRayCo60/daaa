@@ -81,6 +81,16 @@
     ['maikop', 'baku']
   ];
 
+  const RIVERS = [
+    [[780, 500], [900, 740], [1080, 1340], [1040, 1720], [1000, 2100]],
+    [[1400, 540], [1320, 880], [1480, 980]],
+    [[2180, 360], [2100, 800], [2040, 1140], [2160, 1760], [2200, 2140], [2180, 2460]],
+    [[1780, 1280], [1880, 1420], [2040, 1520], [2160, 1760]],
+    [[3280, 980], [3180, 1400], [3000, 2140], [3100, 2500]],
+    [[3920, 400], [3720, 860], [3600, 1400], [3720, 1880], [4000, 2300], [4300, 2550]],
+    [[2720, 1720], [2800, 1900], [3000, 2140]]
+  ];
+
   const UNIT_TYPES = {
     grenadier: {
       faction: 'ger', cls: 'inf', name: 'Grenadier', nameFa: 'گرنادیر', roleFa: 'پیاده',
@@ -253,6 +263,20 @@
     return Math.hypot(px - (ax + t * abx), py - (ay + t * aby));
   }
 
+  function onRiver(x, y) {
+    for (let r = 0; r < RIVERS.length; r++) {
+      const line = RIVERS[r];
+      for (let i = 1; i < line.length; i++) {
+        if (distToSeg(x, y, line[i - 1][0], line[i - 1][1], line[i][0], line[i][1]) < 22) return true;
+      }
+    }
+    return false;
+  }
+  function atBridge(x, y) {
+    const c = nearestCity(x, y);
+    return Math.hypot(c.x - x, c.y - y) < CITY_R + 36;
+  }
+
   function onRail(x, y) {
     for (let i = 0; i < CONNECTIONS.length; i++) {
       const A = cityById(CONNECTIONS[i][0]);
@@ -288,9 +312,13 @@
     const n = Math.sin(x * 0.012) * Math.cos(y * 0.01) + Math.sin((x + y) * 0.007);
     return n > 0.55 && y > 420 && y < 2000;
   }
-  function terrainFactor(x, y, cls) {
+  function terrainFactor(x, y, cls, sea) {
     if (cls === 'air') return 1;
     if (isWater(x, y)) return 0.08;
+    if (onRiver(x, y) && !atBridge(x, y)) {
+      if (sea === 'winter') return 0.72;
+      return 0.12;
+    }
     if (inMarsh(x, y)) return cls === 'tank' || cls === 'art' || cls === 'at' ? 0.38 : 0.64;
     if (inCaucasus(x, y)) return 0.5;
     if (inForest(x, y)) return 0.7;
@@ -311,6 +339,6 @@
     FACTIONS, CITIES, CONNECTIONS, UNIT_TYPES,
     roster, dist, clamp, cityById, neighbors, pathCities,
     isWater, inMarsh, inCaucasus, inForest, terrainFactor, nearestCity,
-    onRail, distToSeg, season, seasonFa, FRONTS
+    onRail, distToSeg, season, seasonFa, FRONTS, RIVERS, onRiver, atBridge
   };
 }));

@@ -768,7 +768,7 @@ class Game {
           if (u.fac === 'ger') weather *= 0.88;
         }
       }
-      const spd = def.speed * OST.terrainFactor(u.x, u.y, def.cls) * sup * fuel * rail * weather * road;
+      const spd = def.speed * OST.terrainFactor(u.x, u.y, def.cls, sea) * sup * fuel * rail * weather * road;
       let nx = u.x + Math.cos(ang) * spd * dt;
       let ny = u.y + Math.sin(ang) * spd * dt;
       if (def.cls !== 'air' && OST.isWater(nx, ny)) {

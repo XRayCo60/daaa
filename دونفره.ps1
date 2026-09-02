@@ -1,6 +1,6 @@
 # OSTFRONT LAN host — no Node.js. Run: Right-click -> Run with PowerShell
 $ErrorActionPreference = 'Stop'
-$Port = 8080
+$Port = 41917
 $Root = Join-Path $PSScriptRoot 'public'
 if (-not (Test-Path $Root)) { $Root = $PSScriptRoot }
 

@@ -1,7 +1,7 @@
 'use strict';
 
 const GFX = (() => {
-  const { WORLD, CITIES, CONNECTIONS, UNIT_TYPES, FACTIONS, CITY_R, isWater, inMarsh, inCaucasus } = OST;
+  const { WORLD, CITIES, CONNECTIONS, UNIT_TYPES, FACTIONS, CITY_R, isWater, inMarsh, inCaucasus, RIVERS } = OST;
 
   let mapCache = null;
   let mapReady = false;
@@ -126,15 +126,7 @@ const GFX = (() => {
   function drawRivers(g) {
     g.lineCap = 'round';
     g.lineJoin = 'round';
-    const rivers = [
-      [[780, 500], [900, 740], [1080, 1340], [1040, 1720], [1000, 2100]],
-      [[1400, 540], [1320, 880], [1480, 980]],
-      [[2180, 360], [2100, 800], [2040, 1140], [2160, 1760], [2200, 2140], [2180, 2460]],
-      [[1780, 1280], [1880, 1420], [2040, 1520], [2160, 1760]],
-      [[3280, 980], [3180, 1400], [3000, 2140], [3100, 2500]],
-      [[3920, 400], [3720, 860], [3600, 1400], [3720, 1880], [4000, 2300], [4300, 2550]],
-      [[2720, 1720], [2800, 1900], [3000, 2140]]
-    ];
+    const rivers = RIVERS;
     for (const r of rivers) {
       g.strokeStyle = '#1a2c34';
       g.lineWidth = 11;
@@ -182,6 +174,17 @@ const GFX = (() => {
     } else if (st.season === 'winter') {
       ctx.fillStyle = 'rgba(210, 224, 236, 0.15)';
       ctx.fillRect(0, 0, WORLD.W, WORLD.H);
+      ctx.save();
+      ctx.strokeStyle = 'rgba(220,230,240,0.45)';
+      ctx.lineWidth = 8;
+      ctx.lineCap = 'round';
+      for (const r of RIVERS) {
+        ctx.beginPath();
+        ctx.moveTo(r[0][0], r[0][1]);
+        for (let i = 1; i < r.length; i++) ctx.lineTo(r[i][0], r[i][1]);
+        ctx.stroke();
+      }
+      ctx.restore();
     }
     drawInfluence(ctx, st);
     drawLiveRails(ctx, st);
