@@ -220,36 +220,51 @@ const GFX = (() => {
 
   function drawFog(ctx, st, myFac) {
     if (!myFac) return;
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(0, 0, WORLD.W, WORLD.H);
+    if (!fogCache) {
+      fogCache = document.createElement('canvas');
+      fogCache.width = Math.floor(WORLD.W * FOG_S);
+      fogCache.height = Math.floor(WORLD.H * FOG_S);
+      fogG = fogCache.getContext('2d');
+    }
+    const g = fogG;
+    const s = FOG_S;
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.globalCompositeOperation = 'source-over';
+    g.clearRect(0, 0, fogCache.width, fogCache.height);
+    g.fillStyle = st.season === 'winter' ? 'rgba(12,16,22,0.52)' : 'rgba(8,10,8,0.55)';
+    g.fillRect(0, 0, fogCache.width, fogCache.height);
+    g.globalCompositeOperation = 'destination-out';
+    const punch = (x, y, r) => {
+      const grd = g.createRadialGradient(x * s, y * s, r * s * 0.62, x * s, y * s, r * s);
+      grd.addColorStop(0, 'rgba(255,255,255,1)');
+      grd.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = grd;
+      g.beginPath();
+      g.arc(x * s, y * s, r * s, 0, 6.28);
+      g.fill();
+    };
     for (const u of st.units) {
       if (u.fac !== myFac) continue;
-      const cls = UNIT_TYPES[u.type].cls;
-      const r = OST.visR(cls);
-      ctx.moveTo(u.x + r, u.y);
-      ctx.arc(u.x, u.y, r, 0, 6.28);
+      punch(u.x, u.y, OST.visR(UNIT_TYPES[u.type].cls));
     }
     for (const c of st.cities) {
       if (c.owner !== myFac) continue;
-      const r = 300 + (c.depot ? 80 : 0);
-      ctx.moveTo(c.x + r, c.y);
-      ctx.arc(c.x, c.y, r, 0, 6.28);
+      const proto = OST.cityById(c.id);
+      punch(c.x, c.y, 200 + (c.depot ? 40 : 0) + (proto && proto.capital ? 50 : 0));
     }
-    ctx.fillStyle = st.season === 'winter' ? 'rgba(8,12,18,0.58)' : 'rgba(6,8,7,0.62)';
-    ctx.fill('evenodd');
-    ctx.restore();
+    g.globalCompositeOperation = 'source-over';
+    ctx.drawImage(fogCache, 0, 0, WORLD.W, WORLD.H);
   }
 
   function drawInfluence(ctx, st) {
     if (!st.cities) return;
     for (const c of st.cities) {
       const col = c.owner === 'ger' ? '196,163,90' : '180,50,50';
-      const grd = ctx.createRadialGradient(c.x, c.y, 24, c.x, c.y, 280);
-      grd.addColorStop(0, 'rgba(' + col + ',0.18)');
+      const grd = ctx.createRadialGradient(c.x, c.y, 8, c.x, c.y, 90);
+      grd.addColorStop(0, 'rgba(' + col + ',0.10)');
       grd.addColorStop(1, 'rgba(' + col + ',0)');
       ctx.fillStyle = grd;
-      ctx.beginPath(); ctx.arc(c.x, c.y, 280, 0, 6.28); ctx.fill();
+      ctx.beginPath(); ctx.arc(c.x, c.y, 90, 0, 6.28); ctx.fill();
     }
   }
 
