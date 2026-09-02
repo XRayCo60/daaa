@@ -45,6 +45,8 @@
       <p class="kicker" id="lobby-kicker">انتخاب جبهه</p>
       <h2 class="lobby-title">کدام طرف می‌جنگی؟</h2>
       <p class="lobby-sub" id="lobby-sub"></p>
+      <div class="ops-row" id="ops-row"></div>
+      <p class="ops-brief" id="ops-brief"></p>
       <div class="faction-row">
         <button class="faction-card ger" id="pick-ger" type="button">
           <img src="img/ger-card.jpg" alt="" />
@@ -88,12 +90,14 @@
           <span title="صنعت"><i>⚙</i><b id="r-i">0</b></span>
           <span title="نیرو"><i>♟</i><b id="r-m">0</b></span>
           <span title="نفت"><i>◆</i><b id="r-o">0</b></span>
-          <span class="pop" title="سقف نیرو"><b id="r-pop">0</b>/<small>52</small></span>
+          <span class="pop" title="سقف نیرو"><b id="r-pop">0</b>/<small>58</small></span>
           <span title="شهرهای متصل به پایتخت"><i>⚓</i><b id="r-net">0</b></span>
           <span title="امتیاز عملیاتی"><i>★</i><b id="r-vp">0</b></span>
         </div>
         <div class="top-right">
+          <span id="hud-scen"></span>
           <span id="hud-fac"></span>
+          <button type="button" id="btn-book" title="دفترچه">کتاب</button>
           <button type="button" id="btn-mute" title="صدا">♪</button>
         </div>
       </header>
@@ -125,15 +129,39 @@
         <small id="sel-count"></small>
       </aside>
 
+      <aside id="intel" class="hidden">
+        <strong id="intel-title"></strong>
+        <em id="intel-role"></em>
+        <div id="intel-body"></div>
+      </aside>
+
+      <div id="book" class="hidden">
+        <div class="book-inner">
+          <header>
+            <strong>دفترچهٔ ستاد</strong>
+            <button type="button" id="book-close">بستن</button>
+          </header>
+          <div class="book-cols">
+            <nav id="book-nav"></nav>
+            <article id="book-page"></article>
+          </div>
+        </div>
+      </div>
+
       <div id="end" class="hidden">
         <p class="kicker" id="end-kicker"></p>
         <h2 id="end-title"></h2>
         <p id="end-sub"></p>
+        <div id="end-aar"></div>
       </div>
     </div>
   </section>
 
   <script src="js/shared.js"></script>
+  <script src="js/campaign.js"></script>
+  <script src="js/intel.js"></script>
+  <script src="js/ops.js"></script>
+  <script src="js/book.js"></script>
   <script src="js/game.js"></script>
   <script src="js/gfx.js"></script>
   <script src="js/client.js"></script>

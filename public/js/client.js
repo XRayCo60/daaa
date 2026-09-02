@@ -55,6 +55,42 @@
     muted = !muted;
     $('btn-mute').textContent = muted ? '×' : '♪';
   };
+  function fillBookNav() {
+    const nav = $('book-nav');
+    if (!nav || !OST.BOOK) return;
+    nav.innerHTML = '';
+    OST.BOOK.forEach((ch, i) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = ch.titleFa;
+      b.onclick = () => showBookPage(i);
+      nav.appendChild(b);
+    });
+  }
+  function showBookPage(i) {
+    if (!OST.BOOK || !OST.BOOK[i]) return;
+    const ch = OST.BOOK[i];
+    const nav = $('book-nav');
+    if (nav) {
+      [...nav.children].forEach((b, n) => b.classList.toggle('on', n === i));
+    }
+    const page = $('book-page');
+    if (!page) return;
+    page.innerHTML = '<h3>' + ch.titleFa + '</h3>' + ch.paras.map(p => '<p>' + p + '</p>').join('');
+  }
+  function toggleBook() {
+    const el = $('book');
+    if (!el) return;
+    const on = el.classList.contains('hidden');
+    el.classList.toggle('hidden', !on);
+    if (on) { fillBookNav(); showBookPage(0); }
+  }
+  function closeBook() {
+    const el = $('book');
+    if (el) el.classList.add('hidden');
+  }
+  if ($('btn-book')) $('btn-book').onclick = () => toggleBook();
+  if ($('book-close')) $('book-close').onclick = () => closeBook();
 
   /* ---------- local sim + optional LAN (no Node) ---------- */
   const FILE = location.protocol === 'file:';
@@ -223,7 +259,10 @@
       net: msg.net, owned: msg.owned, starved: msg.starved,
       fronts: msg.fronts || null, rails: msg.rails || null,
       cities, units, shots: msg.shots || [], deaths: msg.deaths || [],
-      alerts: msg.alerts || []
+      alerts: msg.alerts || [],
+      scenarioId: msg.scenarioId || 'barbarossa',
+      lastOps: msg.lastOps || null,
+      aar: msg.aar || null
     };
   }
 
@@ -262,6 +301,7 @@
   $('btn-join').onclick = () => send({ t: 'mode', mode: 'multi' });
   $('pick-ger').onclick = () => pick('ger');
   $('pick-sov').onclick = () => pick('sov');
+  buildOpsRow();
   $('btn-ready').onclick = () => { beep(520, 0.1, 'triangle', 0.04); send({ t: 'ready' }); };
   $('btn-cancel').onclick = () => send({ t: 'cancel' });
   $('btn-copy').onclick = () => {
@@ -273,6 +313,38 @@
   function pick(fac) {
     send({ t: 'faction', faction: fac });
     beep(360, 0.07, 'square', 0.03);
+  }
+
+  function buildOpsRow() {
+    const row = $('ops-row');
+    if (!row || !OST.SCENARIOS) return;
+    const list = OST.scenarioList ? OST.scenarioList() : Object.values(OST.SCENARIOS);
+    row.innerHTML = '';
+    for (const sc of list) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'op-card';
+      b.dataset.id = sc.id;
+      b.innerHTML = '<em>' + sc.whenFa + '</em><strong>' + sc.nameFa + '</strong>';
+      b.onclick = () => {
+        send({ t: 'scenario', id: sc.id });
+        beep(400, 0.05, 'triangle', 0.03);
+      };
+      row.appendChild(b);
+    }
+  }
+
+  function paintOps() {
+    const sid = meta.scenarioId || 'barbarossa';
+    const sc = OST.SCENARIOS && OST.SCENARIOS[sid];
+    const row = $('ops-row');
+    if (row) {
+      for (const b of row.children) b.classList.toggle('on', b.dataset.id === sid);
+    }
+    const brief = $('ops-brief');
+    if (brief && sc) {
+      brief.textContent = sc.kickerFa + ' — ' + (sc.briefFa && sc.briefFa[0] ? sc.briefFa[0] : '') + ' ' + (sc.noteFa || '');
+    }
   }
 
   function showLobby() {
@@ -314,6 +386,7 @@
       $('lobby-status').textContent = (n < 2 ? 'منتظر بازیکن دوم…  ' : '') + lines.join('   |   ');
       $('url-box').classList.remove('hidden');
     }
+    paintOps();
   }
 
   /* ---------- game ---------- */
@@ -338,6 +411,8 @@
     if (me && me.faction) myFac = me.faction;
     $('hud-fac').textContent = myFac ? FACTIONS[myFac].nameFa : '';
     $('hud-fac').className = myFac || '';
+    const sc0 = OST.SCENARIOS && OST.SCENARIOS[meta.scenarioId];
+    if ($('hud-scen')) $('hud-scen').textContent = sc0 ? sc0.nameFa : '';
     intro = 1;
     cam.x = myFac === 'sov' ? 2400 : 1500;
     cam.y = 1280;
@@ -371,7 +446,9 @@
     $('r-o').textContent = r.o;
     $('r-pop').textContent = st.pop[myFac];
     const sea = st.season || OST.season(st.day);
+    const scn = (OST.SCENARIOS && OST.SCENARIOS[st.scenarioId]) || null;
     $('hud-day').textContent = 'روز ' + st.day + ' — ' + OST.seasonFa(sea);
+    if ($('hud-scen')) $('hud-scen').textContent = scn ? scn.nameFa : '';
     const netEl = $('r-net');
     if (netEl && st.net && st.owned) {
       netEl.textContent = st.net[myFac] + '/' + st.owned[myFac];
@@ -406,6 +483,7 @@
     }
     refreshProd(st);
     refreshSel(st);
+    refreshIntel(st);
   }
 
   const seenToasts = new Set();
@@ -442,6 +520,44 @@
     $('end-sub').textContent = win
       ? (myFac === 'ger' ? 'رایش بر شرق چیره شد.' : 'مسکو ایستاد. رایش درهم شکست.')
       : 'جبهه فرو ریخت.';
+    const box = $('end-aar');
+    if (box && st.aar) {
+      const a = st.aar;
+      const me = myFac || 'ger';
+      box.innerHTML =
+        '<span>کشته ' + (a.kills[me] || 0) + '</span>' +
+        '<span>از دست رفته ' + (a.lost[me] || 0) + '</span>' +
+        '<span>شهر ' + (a.cap[me] || 0) + '</span>' +
+        '<span>ساخته ' + (a.built[me] || 0) + '</span>';
+    }
+  }
+
+  function refreshIntel(st) {
+    const el = $('intel');
+    if (!el) return;
+    if (selectedCity) {
+      const dossier = OST.intelCity && OST.intelCity(selectedCity);
+      const proto = OST.cityById(selectedCity);
+      if (!dossier || !proto) { el.classList.add('hidden'); return; }
+      el.classList.remove('hidden');
+      $('intel-title').textContent = proto.nameFa;
+      $('intel-role').textContent = dossier.roleFa + ' · ' + dossier.tipFa;
+      $('intel-body').innerHTML = (dossier.bodyFa || []).slice(0, 5).map(p => '<p>' + p + '</p>').join('');
+      return;
+    }
+    if (mySel.size === 1 && st) {
+      const u = st.units.find(x => mySel.has(x.id));
+      const du = u && OST.intelUnit && OST.intelUnit(u.type);
+      const def = u && UNIT_TYPES[u.type];
+      if (du && def) {
+        el.classList.remove('hidden');
+        $('intel-title').textContent = def.nameFa;
+        $('intel-role').textContent = def.roleFa;
+        $('intel-body').innerHTML = (du.howFa || []).map(p => '<p>' + p + '</p>').join('');
+        return;
+      }
+    }
+    el.classList.add('hidden');
   }
 
   /* production */
@@ -491,12 +607,12 @@
     const slots = 3 + (city.factory || 0);
     for (const b of box.children) {
       const d = UNIT_TYPES[b.dataset.type];
-      const can = d.cls === 'inf' ? city.barracks >= 1
-        : d.cls === 'at' ? (city.barracks >= 1 || city.factory >= 1)
+      const can = (d.cls === 'inf' || d.cls === 'recon' || d.cls === 'eng') ? city.barracks >= 1
+        : (d.cls === 'at' || d.cls === 'aa') ? (city.barracks >= 1 || city.factory >= 1)
         : city.factory >= 1;
       const ok = can && r.i >= d.cost.i && r.m >= d.cost.m && r.o >= d.cost.o && st.pop[myFac] + d.pop <= POP_CAP && city.queue.length < slots;
       b.classList.toggle('off', !ok);
-      b.title = can ? '' : (d.cls === 'inf' ? 'سربازخانه لازم است' : 'کارخانه لازم است');
+      b.title = can ? '' : ((d.cls === 'inf' || d.cls === 'recon' || d.cls === 'eng') ? 'سربازخانه لازم است' : 'کارخانه لازم است');
     }
     $('prod-q').textContent = city.queue.length
       ? 'صف: ' + city.queue.map(q => UNIT_TYPES[q.type].nameFa + ' ' + Math.ceil(q.left) + 'ث').join(' ← ')
@@ -560,7 +676,8 @@
   /* input */
   window.addEventListener('keydown', (e) => {
     keys[e.code] = true;
-    if (e.code === 'Escape') { mySel.clear(); selectedCity = null; }
+    if (e.code === 'Escape') { mySel.clear(); selectedCity = null; closeBook(); }
+    if (e.code === 'KeyH') { toggleBook(); }
     if (e.code === 'KeyS' && (e.ctrlKey || e.metaKey)) return;
     if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
   });

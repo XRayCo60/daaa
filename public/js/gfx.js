@@ -223,7 +223,7 @@ const GFX = (() => {
     for (const u of st.units) {
       if (u.fac !== myFac) continue;
       const cls = UNIT_TYPES[u.type].cls;
-      const r = cls === 'air' ? 420 : cls === 'at' ? 280 : cls === 'tank' ? 260 : cls === 'art' ? 200 : 230;
+      const r = OST.visR(cls);
       ctx.moveTo(u.x + r, u.y);
       ctx.arc(u.x, u.y, r, 0, 6.28);
     }
@@ -418,7 +418,44 @@ const GFX = (() => {
     switch (type) {
       case 'grenadier':
       case 'strelok':
-        drawInf(ctx, type === 'strelok', col, accent);
+      case 'pzgren':
+      case 'gvardia':
+      case 'pioneer':
+      case 'saper':
+        drawInf(ctx, type === 'strelok' || type === 'gvardia' || type === 'saper', col, accent);
+        if (type === 'pioneer' || type === 'saper') {
+          ctx.strokeStyle = accent;
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          ctx.moveTo(8, 4); ctx.lineTo(12, -6); ctx.stroke();
+        }
+        if (type === 'pzgren' || type === 'gvardia') {
+          ctx.fillStyle = accent;
+          ctx.fillRect(-2, 8, 4, 2);
+        }
+        break;
+      case 'sdkfz':
+      case 'razvedka':
+        ctx.fillStyle = col;
+        ctx.fillRect(-9, -5, 16, 10);
+        ctx.fillStyle = '#1a1a16';
+        ctx.beginPath(); ctx.arc(-5, 6, 2.4, 0, 6.28); ctx.arc(5, 6, 2.4, 0, 6.28); ctx.fill();
+        ctx.fillStyle = '#2a2c26';
+        ctx.fillRect(4, -1, 10, 2);
+        if (type === 'sdkfz') markGer(ctx); else markSov(ctx);
+        break;
+      case 'flak88':
+      case 'aa85':
+        ctx.fillStyle = '#1a1a16';
+        ctx.beginPath(); ctx.arc(-4, 6, 3, 0, 6.28); ctx.arc(6, 6, 3, 0, 6.28); ctx.fill();
+        ctx.fillStyle = col;
+        ctx.fillRect(-7, -4, 14, 8);
+        ctx.save();
+        ctx.rotate(-0.9);
+        ctx.fillStyle = '#222';
+        ctx.fillRect(0, -1.3, 18, 2.6);
+        ctx.restore();
+        if (type === 'flak88') markGer(ctx); else markSov(ctx);
         break;
       case 'panzer4':
         tracks(ctx, 12, 8, col);

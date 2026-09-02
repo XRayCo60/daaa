@@ -45,6 +45,11 @@ class Game {
     this.endedAt = 0;
     this.starved = { ger: false, sov: false };
     this.humanFac = null;
+    this.scenarioId = this.scenarioId || 'barbarossa';
+    this.ceasefire = OST.CEASEFIRE;
+    this.lastOps = null;
+    this._opsFired = {};
+    this.aar = { kills: { ger: 0, sov: 0 }, lost: { ger: 0, sov: 0 }, cap: { ger: 0, sov: 0 }, built: { ger: 0, sov: 0 } };
     for (const [id, c] of this.clients) {
       c.faction = null;
       c.ready = false;
@@ -108,7 +113,8 @@ class Game {
       mode: this.mode,
       players,
       winner: this.winner,
-      winText: this.winText
+      winText: this.winText,
+      scenarioId: this.scenarioId || 'barbarossa'
     };
   }
 
@@ -119,6 +125,7 @@ class Game {
     const t = msg.t;
     if (t === 'mode') this._mode(id, msg.mode);
     else if (t === 'faction') this._faction(id, msg.faction);
+    else if (t === 'scenario') this._scenario(id, msg.id);
     else if (t === 'ready') this._ready(id);
     else if (t === 'cancel') this._cancel(id);
     else if (t === 'cmd' && this.phase === 'playing') this._cmd(id, msg.c);
@@ -143,6 +150,13 @@ class Game {
       this.mode = 'single';
       this.hostId = id;
     }
+  }
+
+  _scenario(id, sid) {
+    if (this.phase !== 'lobby') return;
+    if (id !== this.hostId) return;
+    if (!OST.SCENARIOS || !OST.SCENARIOS[sid]) return;
+    this.scenarioId = sid;
   }
 
   _faction(id, fac) {
@@ -196,7 +210,6 @@ class Game {
     this.phase = 'playing';
     this.winner = null;
     this.tickN = 0;
-    this.day = 1;
     this.acc = 0;
     this.shots = [];
     this.deaths = [];
@@ -204,24 +217,36 @@ class Game {
     this.aiAcc = 0;
     this.aiPushAt = OST.TICK * 90;
     this.starved = { ger: false, sov: false };
+    this.lastOps = null;
+    this._opsFired = {};
+    this.aar = { kills: { ger: 0, sov: 0 }, lost: { ger: 0, sov: 0 }, cap: { ger: 0, sov: 0 }, built: { ger: 0, sov: 0 } };
+    const sc = (OST.SCENARIOS && OST.SCENARIOS[this.scenarioId]) || null;
+    this.day = (sc && sc.day) || 1;
+    this.ceasefire = (sc && sc.cease) || OST.CEASEFIRE;
     this.res = {
       ger: { i: 90, m: 120, o: 150 },
       sov: { i: 80, m: 160, o: 90 }
     };
+    if (sc && sc.res) {
+      this.res.ger = { i: sc.res.ger.i, m: sc.res.ger.m, o: sc.res.ger.o };
+      this.res.sov = { i: sc.res.sov.i, m: sc.res.sov.m, o: sc.res.sov.o };
+    }
     this.vpHold = { ger: 0, sov: 0 };
     this.events = { siberia: false, mud: false, winter: false };
     this.waves = { g1: false, g2: false, s1: false, s2: false };
     this.frontHold = { north: { ger: 0, sov: 0 }, center: { ger: 0, sov: 0 }, south: { ger: 0, sov: 0 } };
     this.frontBoom = { north: null, center: null, south: null };
     this._nets = { ger: new Set(), sov: new Set() };
-    this.cities = CITIES.map(c => ({
+    this.cities = CITIES.map(c => {
+      const own = (sc && sc.owners && sc.owners[c.id]) ? sc.owners[c.id] : c.owner;
+      return {
       id: c.id, x: c.x, y: c.y,
-      owner: c.owner,
+      owner: own,
       home: c.owner,
       cap: 0,
       capFac: null,
       queue: [],
-      rally: { x: c.x + (c.owner === 'ger' ? 80 : -80), y: c.y },
+      rally: { x: c.x + (own === 'ger' ? 80 : -80), y: c.y },
       lastAlert: 0,
       factory: c.factory || 0,
       barracks: c.barracks || 0,
@@ -230,10 +255,13 @@ class Game {
       fort: 0,
       sab: 0,
       cut: false
-    }));
+      };
+    });
     this.units = [];
-    this._spawnInitial();
-    this.alerts.push({ fac: null, text: 'آتش‌بس ' + OST.CEASEFIRE + ' ثانیه. ذخیره را با راه‌آهن به محور بفرست.', ttl: 8 });
+    this._spawnInitial(sc);
+    const scName = sc ? sc.nameFa : 'بارباروسا';
+    this.alerts.push({ fac: null, text: scName + ' — آتش‌بس ' + this.ceasefire + ' ثانیه. ذخیره را با راه‌آهن به محور بفرست.', ttl: 8 });
+    if (typeof OST.applyOpsDay === 'function') OST.applyOpsDay(this);
   }
 
   _spawn(type, fac, x, y) {
@@ -265,37 +293,41 @@ class Game {
     return u;
   }
 
-  _spawnInitial() {
-    const scatter = (list) => {
-      for (const [type, fac, cx, cy, n] of list) {
-        for (let i = 0; i < n; i++) {
-          const a = (i / n) * Math.PI * 2;
-          const r = 28 + (i % 3) * 18;
-          this._spawn(type, fac, cx + Math.cos(a) * r, cy + Math.sin(a) * r);
-        }
+  _spawnInitial(sc) {
+    const scatter = (type, fac, cx, cy, n) => {
+      if (!n) return;
+      for (let i = 0; i < n; i++) {
+        const a = (i / Math.max(1, n)) * Math.PI * 2;
+        const r = 28 + (i % 3) * 18;
+        this._spawn(type, fac, cx + Math.cos(a) * r, cy + Math.sin(a) * r);
       }
     };
-    const C = (id) => OST.cityById(id);
-    scatter([
-      ['grenadier', 'ger', C('warsaw').x, C('warsaw').y, 2],
-      ['grenadier', 'ger', C('konigsberg').x, C('konigsberg').y, 1],
-      ['grenadier', 'ger', C('krakow').x, C('krakow').y, 1],
-      ['grenadier', 'ger', C('berlin').x + 40, C('berlin').y, 2],
-      ['panzer4', 'ger', C('berlin').x + 70, C('berlin').y - 20, 1],
-      ['pak40', 'ger', C('warsaw').x - 30, C('warsaw').y + 40, 1]
-    ]);
-    scatter([
-      ['strelok', 'sov', C('brest').x, C('brest').y, 1],
-      ['strelok', 'sov', C('lvov').x, C('lvov').y, 1],
-      ['strelok', 'sov', C('kaunas').x, C('kaunas').y, 1],
-      ['strelok', 'sov', C('riga').x, C('riga').y, 1],
-      ['strelok', 'sov', C('minsk').x, C('minsk').y, 2],
-      ['strelok', 'sov', C('kiev').x, C('kiev').y, 1],
-      ['strelok', 'sov', C('smolensk').x, C('smolensk').y, 1],
-      ['strelok', 'sov', C('moscow').x, C('moscow').y, 2],
-      ['strelok', 'sov', C('gorky').x, C('gorky').y, 1],
-      ['zis3', 'sov', C('kiev').x - 20, C('kiev').y + 30, 1]
-    ]);
+    const list = (sc && sc.spawn && sc.spawn.length) ? sc.spawn : [
+      ['grenadier', 'ger', 'warsaw', 2],
+      ['grenadier', 'ger', 'konigsberg', 1],
+      ['grenadier', 'ger', 'krakow', 1],
+      ['grenadier', 'ger', 'berlin', 2],
+      ['panzer4', 'ger', 'berlin', 1],
+      ['pak40', 'ger', 'warsaw', 1],
+      ['sdkfz', 'ger', 'warsaw', 1],
+      ['strelok', 'sov', 'brest', 1],
+      ['strelok', 'sov', 'lvov', 1],
+      ['strelok', 'sov', 'kaunas', 1],
+      ['strelok', 'sov', 'riga', 1],
+      ['strelok', 'sov', 'minsk', 2],
+      ['strelok', 'sov', 'kiev', 1],
+      ['strelok', 'sov', 'smolensk', 1],
+      ['strelok', 'sov', 'moscow', 2],
+      ['strelok', 'sov', 'gorky', 1],
+      ['zis3', 'sov', 'kiev', 1],
+      ['razvedka', 'sov', 'minsk', 1]
+    ];
+    for (const row of list) {
+      const [type, fac, cityId, n] = row;
+      const C = this.cities.find(c => c.id === cityId) || OST.cityById(cityId);
+      if (!C || !n) continue;
+      scatter(type, fac, C.x, C.y, n);
+    }
   }
 
   _network(fac) {
@@ -399,8 +431,8 @@ class Game {
   }
 
   _canMake(city, def) {
-    if (def.cls === 'inf') return city.barracks >= 1;
-    if (def.cls === 'at') return city.barracks >= 1 || city.factory >= 1;
+    if (def.cls === 'inf' || def.cls === 'recon' || def.cls === 'eng') return city.barracks >= 1;
+    if (def.cls === 'at' || def.cls === 'aa') return city.barracks >= 1 || city.factory >= 1;
     return city.factory >= 1;
   }
 
@@ -450,9 +482,10 @@ class Game {
       if (this.tickN % (OST.TICK * 25) === 0) {
         this.day++;
         this._seasonEvents();
+        if (typeof OST.applyOpsDay === 'function') OST.applyOpsDay(this);
       }
     }
-    if (this.tickN === OST.CEASEFIRE * OST.TICK) {
+    if (this.tickN === (this.ceasefire || OST.CEASEFIRE) * OST.TICK) {
       this.alerts.push({ fac: null, text: 'آتش‌بس تمام شد — آتش آزاد', ttl: 6 });
     }
     this._waves();
@@ -513,7 +546,14 @@ class Game {
       for (const u of this.units) {
         if (u.fac === city.owner && OST.dist(u, city) < 120) gar++;
       }
-      if (gar) city.sab = Math.max(0, city.sab - dt * 0.12);
+      let eng = 0;
+      for (const u of this.units) {
+        if (u.fac !== city.owner) continue;
+        const d = UNIT_TYPES[u.type];
+        if (d && d.cls === 'eng' && OST.dist(u, city) < 140) eng++;
+      }
+      if (eng) city.sab = Math.max(0, city.sab - dt * 0.38 * eng);
+      else if (gar) city.sab = Math.max(0, city.sab - dt * 0.12);
       else {
         const rate = (city.home === 'sov' && city.owner === 'ger') ? 0.04 : 0.022;
         city.sab = Math.min(1, city.sab + dt * rate);
@@ -670,6 +710,7 @@ class Game {
       if (q.left <= 0) {
         const def = UNIT_TYPES[q.type];
         if (this.pop(city.owner) + (def ? def.pop : 0) <= POP_CAP) {
+          if (this.aar) this.aar.built[city.owner]++;
           const u = this._spawn(q.type, city.owner, city.x + (Math.random() - 0.5) * 36, city.y + (Math.random() - 0.5) * 36);
           if (u && city.rally) {
             u.tx = city.rally.x;
@@ -741,15 +782,15 @@ class Game {
       }
       const dx = gx - u.x, dy = gy - u.y;
       const d = Math.hypot(dx, dy);
-      const holdGun = (def.cls === 'art' || def.cls === 'at') && u.cd > 0 && u.order !== 'move';
+      const holdGun = (def.cls === 'art' || def.cls === 'at' || def.cls === 'aa') && u.cd > 0 && u.order !== 'move';
       if (holdGun) continue;
-      if ((def.cls === 'art' || def.cls === 'at') && u.order !== 'move') {
+      if ((def.cls === 'art' || def.cls === 'at' || def.cls === 'aa') && u.order !== 'move') {
         const enemy = this._closestEnemy(u, def.range);
         if (enemy) continue;
       }
       if (d < 8) {
         if (u.order === 'move') u.order = 'idle';
-        if (def.cls !== 'air') u.ent = Math.min(1, (u.ent || 0) + dt / (def.cls === 'inf' || def.cls === 'at' ? 6 : 10));
+        if (def.cls !== 'air') u.ent = Math.min(1, (u.ent || 0) + dt / (def.cls === 'inf' || def.cls === 'at' || def.cls === 'eng' || def.cls === 'aa' ? 6 : 10));
         continue;
       }
       u.ent = Math.max(0, (u.ent || 0) - dt * 2);
@@ -840,6 +881,8 @@ class Game {
       if (def.cls === 'art' && ecl === 'inf') s *= 0.8;
       if (def.cls === 'at' && ecl === 'tank') s *= 0.32;
       if (def.cls === 'tank' && ecl === 'at') s *= 0.55;
+      if (def.cls === 'aa' && ecl === 'air') s *= 0.28;
+      if (def.cls === 'recon' && ecl === 'inf') s *= 0.85;
       if (s < score) { score = s; best = e; }
     }
     return best;
@@ -847,7 +890,7 @@ class Game {
 
   _combat(dt) {
     for (const u of this.units) u.cd = Math.max(0, u.cd - dt);
-    if (this.tickN < OST.CEASEFIRE * OST.TICK) return;
+    if (this.tickN < (this.ceasefire || OST.CEASEFIRE) * OST.TICK) return;
     const dead = new Set();
     for (const u of this.units) {
       if (dead.has(u.id)) continue;
@@ -888,6 +931,10 @@ class Game {
       if (tgt.hp <= 0 && !dead.has(tgt.id)) {
         dead.add(tgt.id);
         this.deaths.push([tgt.x, tgt.y, UNIT_TYPES[tgt.type].cls, tgt.fac]);
+        if (this.aar) {
+          this.aar.kills[u.fac]++;
+          this.aar.lost[tgt.fac]++;
+        }
       }
     }
     if (dead.size) this.units = this.units.filter(u => u.hp > 0 && !dead.has(u.id));
@@ -895,7 +942,7 @@ class Game {
   }
 
   _capture(dt) {
-    if (this.tickN < OST.CEASEFIRE * OST.TICK) return;
+    if (this.tickN < (this.ceasefire || OST.CEASEFIRE) * OST.TICK) return;
     for (const city of this.cities) {
       let ger = 0, sov = 0;
       for (const u of this.units) {
@@ -915,6 +962,7 @@ class Game {
           const prev = city.owner;
           city.owner = atkFac;
           city.cap = 0;
+          if (this.aar) this.aar.cap[atkFac]++;
           city.queue = [];
           city.rally = { x: city.x + (atkFac === 'ger' ? 70 : -70), y: city.y };
           this.alerts.push({
@@ -1008,15 +1056,18 @@ class Game {
   _aiProduce(me) {
     const mine = this.units.filter(u => u.fac === me);
     const enemy = this.units.filter(u => u.fac !== me);
-    const counts = { inf: 0, tank: 0, art: 0, air: 0, at: 0 };
-    const eCounts = { inf: 0, tank: 0, art: 0, air: 0, at: 0 };
-    for (const u of mine) counts[UNIT_TYPES[u.type].cls]++;
-    for (const u of enemy) eCounts[UNIT_TYPES[u.type].cls]++;
+    const counts = { inf: 0, tank: 0, art: 0, air: 0, at: 0, recon: 0, aa: 0, eng: 0 };
+    const eCounts = { inf: 0, tank: 0, art: 0, air: 0, at: 0, recon: 0, aa: 0, eng: 0 };
+    for (const u of mine) counts[UNIT_TYPES[u.type].cls] = (counts[UNIT_TYPES[u.type].cls] || 0) + 1;
+    for (const u of enemy) eCounts[UNIT_TYPES[u.type].cls] = (eCounts[UNIT_TYPES[u.type].cls] || 0) + 1;
     const types = OST.roster(me);
     const r = this.res[me];
     const oilLow = r.o < 40;
     const want = [];
     if (counts.inf < 8) want.push(types.find(t => UNIT_TYPES[t].cls === 'inf'));
+    if (counts.recon < 1) want.push(types.find(t => UNIT_TYPES[t].cls === 'recon'));
+    if (counts.eng < 1) want.push(types.find(t => UNIT_TYPES[t].cls === 'eng'));
+    if (eCounts.air >= 1 && counts.aa < 2) want.push(types.find(t => UNIT_TYPES[t].cls === 'aa'));
     if (eCounts.tank >= 1 && counts.at < 3) want.push(types.find(t => UNIT_TYPES[t].cls === 'at'));
     if (!oilLow && counts.tank < (eCounts.tank + 2)) {
       want.push(types.find(t => UNIT_TYPES[t].cls === 'tank' && t !== 'tiger' && t !== 'kv1'));
@@ -1179,12 +1230,7 @@ class Game {
   }
 
   _visR(u) {
-    const cls = UNIT_TYPES[u.type].cls;
-    if (cls === 'air') return 420;
-    if (cls === 'at') return 280;
-    if (cls === 'tank') return 260;
-    if (cls === 'art') return 200;
-    return 230;
+    return OST.visR(UNIT_TYPES[u.type].cls);
   }
 
   _seen(x, y, fac) {
@@ -1208,7 +1254,7 @@ class Game {
     const netS = this._network('sov');
     const ownedG = this.cities.filter(c => c.owner === 'ger').length;
     const ownedS = this.cities.filter(c => c.owner === 'sov').length;
-    const cease = Math.max(0, Math.ceil(OST.CEASEFIRE - this.tickN / OST.TICK));
+    const cease = Math.max(0, Math.ceil((this.ceasefire || OST.CEASEFIRE) - this.tickN / OST.TICK));
     const units = this.units.filter(u => open || u.fac === fac || this._seen(u.x, u.y, fac));
     const shots = (this.shots || []).filter(s => open || !fac || this._seen(s[0], s[1], fac) || this._seen(s[2], s[3], fac));
     const show = (side) => open || fac === side;
@@ -1217,6 +1263,9 @@ class Game {
       phase: this.phase,
       tick: this.tickN,
       day: this.day,
+      scenarioId: this.scenarioId || 'barbarossa',
+      lastOps: this.lastOps || null,
+      aar: this.aar,
       season: OST.season(this.day),
       winner: this.winner,
       winText: this.winText,
