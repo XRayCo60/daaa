@@ -205,6 +205,7 @@
       rally: { x: c[5], y: c[6] },
       factory: c[7] || 0, barracks: c[8] || 0, depot: c[9] || 0,
       upg: c[10] || null,
+      cut: !!c[11],
       x: 0, y: 0
     }));
     for (const c of cities) {
@@ -220,6 +221,7 @@
       winner: msg.winner, winText: msg.winText,
       res: msg.res, pop: msg.pop, vp: msg.vp, hold: msg.hold,
       net: msg.net, owned: msg.owned, starved: msg.starved,
+      fronts: msg.fronts || null, rails: msg.rails || null,
       cities, units, shots: msg.shots || [], deaths: msg.deaths || [],
       alerts: msg.alerts || []
     };
@@ -391,6 +393,16 @@
       $('r-o').parentElement.style.color = '#e07070';
     } else {
       $('r-o').parentElement.style.color = '';
+    }
+    if (st.fronts) {
+      for (const k of ['north', 'center', 'south']) {
+        const f = st.fronts[k];
+        const el = $('f-' + k);
+        if (!el || !f) continue;
+        const pct = f.n ? (100 * f.g / f.n) : 50;
+        el.querySelector('b').style.background =
+          'linear-gradient(to left, var(--sov) 0, var(--sov) ' + (100 - pct) + '%, var(--ger) ' + (100 - pct) + '%, var(--ger) 100%)';
+      }
     }
     refreshProd(st);
     refreshSel(st);

@@ -172,7 +172,7 @@
     berlin: 8, moscow: 8, leningrad: 3, stalingrad: 3, baku: 3,
     kiev: 2, warsaw: 2
   };
-  const CEASEFIRE = 40;
+  const CEASEFIRE = 75;
   const VP_WIN = 24;
   const UPGRADES = {
     factory: { i: 80, t: 18, max: 2, nameFa: 'کارخانه' },
@@ -197,6 +197,12 @@
   function seasonFa(s) {
     return s === 'summer' ? 'تابستان · خشک' : s === 'mud' ? 'گل‌آلود' : 'زمستان';
   }
+
+  const FRONTS = {
+    north:  { nameFa: 'شمال', ids: ['konigsberg', 'kaunas', 'riga', 'pskov', 'leningrad'] },
+    center: { nameFa: 'مرکز', ids: ['warsaw', 'brest', 'minsk', 'smolensk', 'tula', 'moscow'] },
+    south:  { nameFa: 'جنوب', ids: ['krakow', 'lvov', 'kiev', 'kharkov', 'rostov', 'stalingrad', 'baku'] }
+  };
 
   function roster(fac) {
     return Object.keys(UNIT_TYPES).filter(k => UNIT_TYPES[k].faction === fac);
@@ -305,6 +311,6 @@
     FACTIONS, CITIES, CONNECTIONS, UNIT_TYPES,
     roster, dist, clamp, cityById, neighbors, pathCities,
     isWater, inMarsh, inCaucasus, inForest, terrainFactor, nearestCity,
-    onRail, distToSeg, season, seasonFa
+    onRail, distToSeg, season, seasonFa, FRONTS
   };
 }));

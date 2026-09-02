@@ -202,17 +202,22 @@ class Game {
     this.deaths = [];
     this.alerts = [];
     this.aiAcc = 0;
-    this.aiPushAt = OST.TICK * 55;
+    this.aiPushAt = OST.TICK * 90;
     this.starved = { ger: false, sov: false };
     this.res = {
-      ger: { i: 90, m: 120, o: 200 },
+      ger: { i: 90, m: 120, o: 150 },
       sov: { i: 80, m: 160, o: 90 }
     };
     this.vpHold = { ger: 0, sov: 0 };
     this.events = { siberia: false, mud: false, winter: false };
+    this.waves = { g1: false, g2: false, s1: false, s2: false };
+    this.frontHold = { north: { ger: 0, sov: 0 }, center: { ger: 0, sov: 0 }, south: { ger: 0, sov: 0 } };
+    this.frontBoom = { north: null, center: null, south: null };
+    this._nets = { ger: new Set(), sov: new Set() };
     this.cities = CITIES.map(c => ({
       id: c.id, x: c.x, y: c.y,
       owner: c.owner,
+      home: c.owner,
       cap: 0,
       capFac: null,
       queue: [],
@@ -222,11 +227,13 @@ class Game {
       barracks: c.barracks || 0,
       depot: c.depot || 0,
       upg: null,
-      fort: 0
+      fort: 0,
+      sab: 0,
+      cut: false
     }));
     this.units = [];
     this._spawnInitial();
-    this.alerts.push({ fac: null, text: 'آتش‌بس عملیاتی — ' + OST.CEASEFIRE + ' ثانیه تا گشودن آتش. تولید کن، محور را بچین.', ttl: 8 });
+    this.alerts.push({ fac: null, text: 'آتش‌بس ' + OST.CEASEFIRE + ' ثانیه. ذخیره را با راه‌آهن به محور بفرست.', ttl: 8 });
   }
 
   _spawn(type, fac, x, y) {
@@ -250,7 +257,9 @@ class Game {
       cd: 0,
       salvoLeft: def.salvo || 0,
       supplied: true,
-      ent: 0
+      ent: 0,
+      way: null,
+      wi: 0
     };
     this.units.push(u);
     return u;
@@ -269,10 +278,10 @@ class Game {
     const C = (id) => OST.cityById(id);
     scatter([
       ['grenadier', 'ger', C('warsaw').x, C('warsaw').y, 2],
-      ['grenadier', 'ger', C('konigsberg').x, C('konigsberg').y, 2],
+      ['grenadier', 'ger', C('konigsberg').x, C('konigsberg').y, 1],
       ['grenadier', 'ger', C('krakow').x, C('krakow').y, 1],
-      ['grenadier', 'ger', C('berlin').x + 40, C('berlin').y, 1],
-      ['panzer4', 'ger', C('warsaw').x + 50, C('warsaw').y - 20, 1],
+      ['grenadier', 'ger', C('berlin').x + 40, C('berlin').y, 2],
+      ['panzer4', 'ger', C('berlin').x + 70, C('berlin').y - 20, 1],
       ['pak40', 'ger', C('warsaw').x - 30, C('warsaw').y + 40, 1]
     ]);
     scatter([
@@ -281,10 +290,10 @@ class Game {
       ['strelok', 'sov', C('kaunas').x, C('kaunas').y, 1],
       ['strelok', 'sov', C('riga').x, C('riga').y, 1],
       ['strelok', 'sov', C('minsk').x, C('minsk').y, 2],
-      ['strelok', 'sov', C('kiev').x, C('kiev').y, 2],
+      ['strelok', 'sov', C('kiev').x, C('kiev').y, 1],
       ['strelok', 'sov', C('smolensk').x, C('smolensk').y, 1],
-      ['strelok', 'sov', C('leningrad').x, C('leningrad').y, 1],
-      ['strelok', 'sov', C('moscow').x, C('moscow').y, 1],
+      ['strelok', 'sov', C('moscow').x, C('moscow').y, 2],
+      ['strelok', 'sov', C('gorky').x, C('gorky').y, 1],
       ['zis3', 'sov', C('kiev').x - 20, C('kiev').y + 30, 1]
     ]);
   }
@@ -292,7 +301,7 @@ class Game {
   _network(fac) {
     const cap = this.cities.find(c => c.owner === fac && OST.cityById(c.id).capital);
     const owned = new Set();
-    for (const c of this.cities) if (c.owner === fac) owned.add(c.id);
+    for (const c of this.cities) if (c.owner === fac && !c.cut) owned.add(c.id);
     const net = new Set();
     if (!cap) return net;
     const q = [cap.id];
@@ -346,7 +355,30 @@ class Game {
       u.ty = y + oy;
       u.order = order;
       u.targetId = tid || 0;
+      this._railWay(u, u.tx, u.ty);
     });
+  }
+
+  _railWay(u, x, y) {
+    u.way = null;
+    u.wi = 0;
+    const def = UNIT_TYPES[u.type];
+    if (!def || def.cls === 'air') return;
+    if (Math.hypot(x - u.x, y - u.y) < 260) return;
+    const from = OST.nearestCity(u.x, u.y);
+    const to = OST.nearestCity(x, y);
+    if (!from || !to || from.id === to.id) return;
+    const chain = OST.pathCities(from.id, to.id);
+    if (!chain || chain.length < 2) return;
+    const pts = [];
+    for (let i = 0; i < chain.length; i++) {
+      const c = OST.cityById(chain[i]);
+      if (i === 0 && Math.hypot(u.x - c.x, u.y - c.y) < 80) continue;
+      pts.push({ x: c.x, y: c.y });
+    }
+    pts.push({ x, y });
+    u.way = pts;
+    u.wi = 0;
   }
 
   _stop(fac, ids) {
@@ -355,6 +387,8 @@ class Game {
       u.tx = u.x;
       u.ty = u.y;
       u.targetId = 0;
+      u.way = null;
+      u.wi = 0;
     }
   }
 
@@ -405,11 +439,14 @@ class Game {
     this.tickN++;
     this.shots = [];
     this.deaths = [];
+    this._nets = { ger: this._network('ger'), sov: this._network('sov') };
     this.acc += dt;
     if (this.acc >= 1) {
       this.acc -= 1;
       this._income();
       this._fuel();
+      this._partisan(1);
+      this._frontTick(1);
       if (this.tickN % (OST.TICK * 25) === 0) {
         this.day++;
         this._seasonEvents();
@@ -418,6 +455,7 @@ class Game {
     if (this.tickN === OST.CEASEFIRE * OST.TICK) {
       this.alerts.push({ fac: null, text: 'آتش‌بس تمام شد — آتش آزاد', ttl: 6 });
     }
+    this._waves();
     this._production(dt);
     this._supply();
     this._move(dt);
@@ -437,12 +475,12 @@ class Game {
   }
 
   _income() {
-    const netG = this._network('ger');
-    const netS = this._network('sov');
+    const netG = this._nets.ger;
+    const netS = this._nets.sov;
     for (const c of this.cities) {
       const proto = OST.cityById(c.id);
       const net = c.owner === 'ger' ? netG : netS;
-      const mul = net.has(c.id) ? 1 : 0.35;
+      const mul = c.cut ? 0.15 : (net.has(c.id) ? 1 : 0.28);
       const r = this.res[c.owner];
       r.i += proto.i * mul * (1 + (c.factory || 0) * 0.12);
       r.m += proto.m * mul * (1 + (c.barracks || 0) * 0.08);
@@ -462,6 +500,105 @@ class Game {
       if (c.owner === fac) v += OST.cityById(c.id).vp || 0;
     }
     return v;
+  }
+
+  _partisan(dt) {
+    for (const city of this.cities) {
+      if (city.owner === city.home) {
+        city.sab = 0;
+        city.cut = false;
+        continue;
+      }
+      let gar = 0;
+      for (const u of this.units) {
+        if (u.fac === city.owner && OST.dist(u, city) < 120) gar++;
+      }
+      if (gar) city.sab = Math.max(0, city.sab - dt * 0.12);
+      else {
+        const rate = (city.home === 'sov' && city.owner === 'ger') ? 0.04 : 0.022;
+        city.sab = Math.min(1, city.sab + dt * rate);
+      }
+      const was = city.cut;
+      city.cut = city.sab >= 1;
+      if (city.cut && !was) {
+        this.alerts.push({
+          fac: city.owner,
+          text: 'پارتیزان خط آهن ' + OST.cityById(city.id).nameFa + ' را بست',
+          ttl: 6
+        });
+      }
+    }
+  }
+
+  _waves() {
+    const t = this.tickN / OST.TICK;
+    const spawn = (type, fac, id, n) => {
+      const city = this.cities.find(c => c.id === id && c.owner === fac);
+      if (!city) return;
+      for (let i = 0; i < n; i++) {
+        if (this.pop(fac) + (UNIT_TYPES[type].pop || 1) > POP_CAP) return;
+        this._spawn(type, fac, city.x + (Math.random() - 0.5) * 40, city.y + (Math.random() - 0.5) * 40);
+      }
+    };
+    if (!this.waves.g1 && t >= 90) {
+      this.waves.g1 = true;
+      spawn('grenadier', 'ger', 'warsaw', 2);
+      spawn('panzer4', 'ger', 'warsaw', 1);
+      this.alerts.push({ fac: 'ger', text: 'موج دوم زرهی به ورشو رسید', ttl: 6 });
+    }
+    if (!this.waves.g2 && t >= 160) {
+      this.waves.g2 = true;
+      spawn('grenadier', 'ger', 'berlin', 1);
+      spawn('wespe', 'ger', 'berlin', 1);
+      this.alerts.push({ fac: 'ger', text: 'ذخیرهٔ برلین آمادهٔ اعزام است', ttl: 6 });
+    }
+    if (!this.waves.s1 && t >= 100) {
+      this.waves.s1 = true;
+      spawn('strelok', 'sov', 'moscow', 3);
+      this.alerts.push({ fac: 'sov', text: 'بسیج مسکو — سه لشکر پیاده', ttl: 6 });
+    }
+    if (!this.waves.s2 && t >= 170) {
+      this.waves.s2 = true;
+      spawn('t34', 'sov', 'gorky', 1);
+      spawn('strelok', 'sov', 'gorky', 1);
+      this.alerts.push({ fac: 'sov', text: 'زره از گورکی به خط آمد', ttl: 6 });
+    }
+  }
+
+  _frontTick(dt) {
+    for (const [k, f] of Object.entries(OST.FRONTS)) {
+      let ger = 0;
+      for (const id of f.ids) {
+        const c = this.cities.find(x => x.id === id);
+        if (c && c.owner === 'ger') ger++;
+      }
+      const n = f.ids.length;
+      const sov = n - ger;
+      const hold = this.frontHold[k];
+      if (ger === n) hold.ger += dt; else hold.ger = 0;
+      if (sov === n) hold.sov += dt; else hold.sov = 0;
+      if (hold.ger >= 20 && this.frontBoom[k] !== 'ger') {
+        this.frontBoom[k] = 'ger';
+        this.alerts.push({ fac: null, text: 'محور ' + f.nameFa + ' فرو ریخت — ورماخت', ttl: 7 });
+      }
+      if (hold.sov >= 20 && this.frontBoom[k] !== 'sov') {
+        this.frontBoom[k] = 'sov';
+        this.alerts.push({ fac: null, text: 'محور ' + f.nameFa + ' تثبیت شد — ارتش سرخ', ttl: 7 });
+      }
+    }
+  }
+
+  _frontSnap() {
+    const out = {};
+    for (const [k, f] of Object.entries(OST.FRONTS)) {
+      let g = 0;
+      for (const id of f.ids) {
+        const c = this.cities.find(x => x.id === id);
+        if (c && c.owner === 'ger') g++;
+      }
+      out[k] = { g, n: f.ids.length, nameFa: f.nameFa };
+    }
+    return out;
   }
 
   _seasonEvents() {
@@ -500,8 +637,8 @@ class Game {
         if (u.fac !== f) continue;
         const def = UNIT_TYPES[u.type];
         if (!def.burn) continue;
-        const moving = Math.hypot(u.tx - u.x, u.ty - u.y) > 14;
-        if (moving) burn += def.burn;
+        const moving = Math.hypot(u.tx - u.x, u.ty - u.y) > 14 || (u.way && u.wi < (u.way.length || 0));
+        if (moving) burn += def.burn * (this._liveRail(u.x, u.y, u.fac) ? 0.55 : 1);
       }
       this.res[f].o = Math.max(0, this.res[f].o - burn);
       const was = this.starved[f];
@@ -538,6 +675,7 @@ class Game {
             u.tx = city.rally.x;
             u.ty = city.rally.y;
             u.order = 'move';
+            this._railWay(u, u.tx, u.ty);
           }
         }
         city.queue.shift();
@@ -546,7 +684,7 @@ class Game {
   }
 
   _supply() {
-    const nets = { ger: this._network('ger'), sov: this._network('sov') };
+    const nets = this._nets;
     for (const u of this.units) {
       const def = UNIT_TYPES[u.type];
       if (def.cls === 'air') { u.supplied = true; continue; }
@@ -561,20 +699,47 @@ class Game {
     }
   }
 
+  _liveRail(x, y, fac) {
+    const net = this._nets[fac];
+    if (!net) return false;
+    for (let i = 0; i < OST.CONNECTIONS.length; i++) {
+      const e = OST.CONNECTIONS[i];
+      const A = this.cities.find(c => c.id === e[0]);
+      const B = this.cities.find(c => c.id === e[1]);
+      if (!A || !B || A.owner !== fac || B.owner !== fac) continue;
+      if (A.cut || B.cut || !net.has(A.id) || !net.has(B.id)) continue;
+      if (OST.distToSeg(x, y, A.x, A.y, B.x, B.y) < 34) return true;
+    }
+    return false;
+  }
+
   _move(dt) {
     for (const u of this.units) {
       const def = UNIT_TYPES[u.type];
       if (u.targetId) {
         const t = this.units.find(x => x.id === u.targetId);
         if (t) {
-          u.tx = t.x;
-          u.ty = t.y;
+          if (OST.dist(u, t) < 340) {
+            u.way = null;
+            u.tx = t.x;
+            u.ty = t.y;
+          }
         } else {
           u.targetId = 0;
           if (u.order === 'attack') u.order = 'idle';
         }
       }
-      const dx = u.tx - u.x, dy = u.ty - u.y;
+      let gx = u.tx, gy = u.ty;
+      if (u.way && u.wi < u.way.length) {
+        gx = u.way[u.wi].x;
+        gy = u.way[u.wi].y;
+        if (Math.hypot(gx - u.x, gy - u.y) < 22) {
+          u.wi++;
+          if (u.wi >= u.way.length) u.way = null;
+          else { gx = u.way[u.wi].x; gy = u.way[u.wi].y; }
+        }
+      }
+      const dx = gx - u.x, dy = gy - u.y;
       const d = Math.hypot(dx, dy);
       const holdGun = (def.cls === 'art' || def.cls === 'at') && u.cd > 0 && u.order !== 'move';
       if (holdGun) continue;
@@ -591,17 +756,19 @@ class Game {
       let ang = Math.atan2(dy, dx);
       const sup = u.supplied ? 1 : 0.55;
       const fuel = (this.starved[u.fac] && (def.cls === 'tank' || def.cls === 'air' || def.cls === 'art')) ? 0.38 : 1;
-      const rail = (def.cls !== 'air' && OST.onRail(u.x, u.y)) ? 1.45 : 1;
+      const onLive = def.cls !== 'air' && this._liveRail(u.x, u.y, u.fac);
+      const road = def.cls === 'air' ? 1 : 0.4;
+      const rail = onLive ? 2.75 : 1;
       const sea = OST.season(this.day);
       let weather = 1;
       if (def.cls !== 'air') {
-        if (sea === 'mud' && rail < 1.2) weather = 0.5;
+        if (sea === 'mud' && !onLive) weather = 0.48;
         if (sea === 'winter') {
           weather = def.cls === 'inf' ? 0.82 : 0.66;
           if (u.fac === 'ger') weather *= 0.88;
         }
       }
-      const spd = def.speed * OST.terrainFactor(u.x, u.y, def.cls) * sup * fuel * rail * weather;
+      const spd = def.speed * OST.terrainFactor(u.x, u.y, def.cls) * sup * fuel * rail * weather * road;
       let nx = u.x + Math.cos(ang) * spd * dt;
       let ny = u.y + Math.sin(ang) * spd * dt;
       if (def.cls !== 'air' && OST.isWater(nx, ny)) {
@@ -743,7 +910,7 @@ class Game {
       if (atkFac && atkFac !== city.owner && atk > 0.4) {
         city.capFac = atkFac;
         const fort = 1 + (city.barracks || 0) * 0.15 + (city.depot || 0) * 0.25 + (city.factory || 0) * 0.08;
-        city.cap = Math.min(1, city.cap + dt * (0.07 + atk * 0.035) / fort);
+        city.cap = Math.min(1, city.cap + dt * (0.035 + atk * 0.018) / fort);
         if (city.cap >= 1) {
           const prev = city.owner;
           city.owner = atkFac;
@@ -920,7 +1087,8 @@ class Game {
           const d = OST.dist(u, c);
           if (d < bd) { bd = d; best = c; }
         }
-        u.tx = best.x; u.ty = best.y; u.order = 'move'; u.targetId = 0;
+        u.order = 'move'; u.targetId = 0;
+        this._orderMove(me, [u.id], best.x, best.y, 'move');
       }
     }
 
@@ -986,13 +1154,8 @@ class Game {
     if (!objective) return;
 
     if (pushing) {
-      for (const u of idle) {
-        if (u.hp < UNIT_TYPES[u.type].hp * 0.28) continue;
-        const jitter = 40;
-        u.tx = objective.x + (Math.random() - 0.5) * jitter;
-        u.ty = objective.y + (Math.random() - 0.5) * jitter;
-        u.order = 'attack';
-      }
+      const ids = idle.filter(u => u.hp >= UNIT_TYPES[u.type].hp * 0.28).map(u => u.id);
+      if (ids.length) this._orderMove(me, ids, objective.x, objective.y, 'attack');
     }
   }
 
@@ -1084,7 +1247,8 @@ class Game {
         (open || c.owner === fac) ? c.queue.map(q => [q.type, Math.ceil(q.left)]) : [],
         Math.round(c.rally.x), Math.round(c.rally.y),
         c.factory || 0, c.barracks || 0, c.depot || 0,
-        (open || c.owner === fac) && c.upg ? [c.upg.what, Math.ceil(c.upg.left)] : null
+        (open || c.owner === fac) && c.upg ? [c.upg.what, Math.ceil(c.upg.left)] : null,
+        c.cut ? 1 : 0
       ]),
       units: units.map(u => [
         u.id, u.type, u.fac,
@@ -1095,7 +1259,16 @@ class Game {
       ]),
       shots,
       deaths: open || !fac ? this.deaths : this.deaths.filter(d => this._seen(d[0], d[1], fac)),
-      alerts: this.alerts.map(a => ({ fac: a.fac, text: a.text }))
+      alerts: this.alerts.map(a => ({ fac: a.fac, text: a.text })),
+      fronts: this._frontSnap(),
+      rails: OST.CONNECTIONS.map(e => {
+        const A = this.cities.find(c => c.id === e[0]);
+        const B = this.cities.find(c => c.id === e[1]);
+        if (!A || !B || A.owner !== B.owner || A.cut || B.cut) return 0;
+        const net = this._nets[A.owner];
+        if (!net || !net.has(A.id) || !net.has(B.id)) return 0;
+        return A.owner === 'ger' ? 1 : 2;
+      })
     };
   }
 }

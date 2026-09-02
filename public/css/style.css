@@ -264,6 +264,25 @@ body {
   font-size: 14px;
 }
 
+#fronts {
+  position: absolute;
+  top: 48px; left: 16px;
+  display: flex; flex-direction: column; gap: 5px;
+  pointer-events: none;
+}
+.front {
+  width: 148px;
+  background: rgba(8,7,5,.72);
+  border: 1px solid var(--stroke);
+  padding: 4px 8px 6px;
+}
+.front em { font-style: normal; color: var(--dim); font-size: 11px; }
+.front b {
+  display: block; height: 5px; margin-top: 4px;
+  background: linear-gradient(to left, var(--sov) 50%, var(--ger) 50%);
+  border-radius: 1px;
+}
+
 #hint {
   position: absolute;
   top: 78px; left: 0; right: 0;

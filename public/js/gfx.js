@@ -184,11 +184,31 @@ const GFX = (() => {
       ctx.fillRect(0, 0, WORLD.W, WORLD.H);
     }
     drawInfluence(ctx, st);
+    drawLiveRails(ctx, st);
     if (st.fog) drawFog(ctx, st, myFac);
     drawCities(ctx, st, cam, hover, dtClock);
     drawShots(ctx, st);
     drawUnits(ctx, st, sel, myFac, cam);
     if (box) drawBox(ctx, box);
+    ctx.restore();
+  }
+
+  function drawLiveRails(ctx, st) {
+    if (!st.rails) return;
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (let i = 0; i < CONNECTIONS.length; i++) {
+      const live = st.rails[i];
+      if (!live) continue;
+      const A = CITIES.find(c => c.id === CONNECTIONS[i][0]);
+      const B = CITIES.find(c => c.id === CONNECTIONS[i][1]);
+      ctx.strokeStyle = live === 1 ? 'rgba(196,163,90,0.55)' : 'rgba(196,70,70,0.5)';
+      ctx.lineWidth = 3.2;
+      ctx.beginPath();
+      ctx.moveTo(A.x, A.y);
+      ctx.lineTo(B.x, B.y);
+      ctx.stroke();
+    }
     ctx.restore();
   }
 
@@ -239,6 +259,16 @@ const GFX = (() => {
       ctx.lineWidth = proto.capital ? 4 : 2;
       ctx.strokeStyle = col;
       ctx.stroke();
+
+      if (c.cut) {
+        ctx.beginPath();
+        ctx.arc(c.x, c.y, CITY_R + 6, 0, 6.28);
+        ctx.strokeStyle = 'rgba(180,70,40,0.75)';
+        ctx.setLineDash([5, 4]);
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
 
       if (c.cap > 0) {
         ctx.beginPath();

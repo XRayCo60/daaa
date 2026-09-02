@@ -34,7 +34,7 @@
       </div>
       <button class="ghost join-existing hidden" id="btn-join" type="button">پیوستن به نبرد دونفرهٔ در انتظار</button>
       <p class="busy hidden" id="busy">یک نبرد در جریان است. بعد از پایان، همین نشانی را تازه کنید.</p>
-      <p class="foot">نبرد زنده است. پایتخت، یا بیست‌وچهار امتیاز عملیاتی.</p>
+      <p class="foot">نبرد زنده است. سه محور. راه‌آهن. ذخیره. پایتخت یا امتیاز.</p>
     </div>
   </section>
 
@@ -100,7 +100,12 @@
 
       <div id="toasts"></div>
       <div id="cease" class="hidden">آتش‌بس</div>
-      <div id="hint">آتش‌بس اول · شهر را ارتقا بده · کارخانه برای تانک · ۲۴ امتیاز را نگه دار</div>
+      <div id="fronts">
+        <div class="front" id="f-north"><em>شمال</em><b></b></div>
+        <div class="front" id="f-center"><em>مرکز</em><b></b></div>
+        <div class="front" id="f-south"><em>جنوب</em><b></b></div>
+      </div>
+      <div id="hint">راه‌آهن زنده = انتقال سریع · ذخیره را از عقب بیاور · شهر بی‌نگهبان پارتیزان می‌شود</div>
 
       <aside id="prod" class="hidden">
         <header>
@@ -110,7 +115,7 @@
         <div id="prod-cards"></div>
         <div id="prod-upg"></div>
         <div id="prod-q"></div>
-        <p class="prod-tip">راست‌کلیک روی نقشه: نقطهٔ تجمع</p>
+        <p class="prod-tip">راست‌کلیک دور: انتقال با راه‌آهن</p>
       </aside>
 
       <aside id="sel" class="hidden">
