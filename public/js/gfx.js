@@ -5,6 +5,9 @@ const GFX = (() => {
 
   let mapCache = null;
   let mapReady = false;
+  let fogCache = null;
+  let fogG = null;
+  const FOG_S = 0.4;
 
   function hash(x, y) {
     let n = x * 374761393 + y * 668265263;
