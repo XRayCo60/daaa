@@ -16,25 +16,25 @@
     <div class="menu-bg"></div>
     <div class="vignette"></div>
     <div class="menu-inner">
-      <p class="kicker">تابستان ۱۹۴۱</p>
+      <p class="kicker">۱۹۴۱ — ۱۹۴۵</p>
       <h1>OSTFRONT</h1>
       <h2>جبههٔ شرق</h2>
-      <p class="lede">اروپا سقوط کرده. دو قدرت مانده‌اند. ورماخت و ارتش سرخ.</p>
+      <p class="lede">اروپا سقوط کرده. دو غول تاریخی در نبردی سرنوشت‌ساز روبروی یکدیگرند. ورماخت و ارتش سرخ.</p>
       <div class="mode-row">
         <button class="mode-btn" id="btn-single" type="button">
           <span class="mode-n">۰۱</span>
           <span class="mode-t">تک‌نفره</span>
-          <span class="mode-s">علیه ستاد کل دشمن</span>
+          <span class="mode-s">نبرد با ستاد کل هوش مصنوعی</span>
         </button>
         <button class="mode-btn" id="btn-multi" type="button">
           <span class="mode-n">۰۲</span>
-          <span class="mode-t">دونفره</span>
-          <span class="mode-s">یک نشانی، دو لپ‌تاپ</span>
+          <span class="mode-t">دونفره شبکه (LAN)</span>
+          <span class="mode-s">یک شبکه، دو فرمانده</span>
         </button>
       </div>
       <button class="ghost join-existing hidden" id="btn-join" type="button">پیوستن به نبرد دونفرهٔ در انتظار</button>
       <p class="busy hidden" id="busy">یک نبرد در جریان است. بعد از پایان، همین نشانی را تازه کنید.</p>
-      <p class="foot">نبرد زنده است. سه محور. راه‌آهن. ذخیره. پایتخت یا امتیاز.</p>
+      <p class="foot">نبرد زنده در سه جبهه · راه‌آهن راهبردی · دکترین‌های تاکتیکی · تسخیر پایتخت یا ۲۴ امتیاز</p>
     </div>
   </section>
 
@@ -42,18 +42,30 @@
     <div class="lobby-bg"></div>
     <div class="vignette"></div>
     <div class="lobby-inner">
-      <p class="kicker" id="lobby-kicker">انتخاب جبهه</p>
+      <p class="kicker" id="lobby-kicker">انتخاب جبهه و عملیات</p>
       <h2 class="lobby-title">کدام طرف می‌جنگی؟</h2>
       <p class="lobby-sub" id="lobby-sub"></p>
+      
       <div class="ops-row" id="ops-row"></div>
       <p class="ops-brief" id="ops-brief"></p>
+
+      <div class="diff-row" id="diff-row">
+        <span class="diff-label">درجه مهارت هوش مصنوعی:</span>
+        <div class="diff-buttons">
+          <button type="button" class="diff-btn" data-diff="recruit">تازه کار</button>
+          <button type="button" class="diff-btn on" data-diff="officer">افسر ستاد</button>
+          <button type="button" class="diff-btn" data-diff="general">ژنرال</button>
+          <button type="button" class="diff-btn" data-diff="field_marshal">فیلد مارشال</button>
+        </div>
+      </div>
+
       <div class="faction-row">
         <button class="faction-card ger" id="pick-ger" type="button">
           <img src="img/ger-card.jpg" alt="" />
           <div class="faction-meta">
             <span class="faction-tag">غرب</span>
             <strong>ورماخت</strong>
-            <em>کیفیت، سوخت محدود، ضربهٔ اول</em>
+            <em>کیفیت زرهی، تایگر و فردیناند، ضربه اول</em>
           </div>
         </button>
         <button class="faction-card sov" id="pick-sov" type="button">
@@ -61,19 +73,20 @@
           <div class="faction-meta">
             <span class="faction-tag">شرق</span>
             <strong>ارتش سرخ</strong>
-            <em>عمق، صنعت، نفت باکو</em>
+            <em>عمق استراتژیک، تی-۳۴ و آی‌اس-۲، نفت باکو</em>
           </div>
         </button>
       </div>
+
       <div class="lobby-status" id="lobby-status"></div>
       <div class="url-box hidden" id="url-box">
-        <span>این نشانی را در لپ‌تاپ دوم باز کنید</span>
+        <span>این نشانی را در لپ‌تاپ دوم باز کنید:</span>
         <code id="share-url"></code>
-        <button type="button" id="btn-copy">رونوشت</button>
+        <button type="button" id="btn-copy">رونوشت نشانی</button>
       </div>
       <div class="lobby-actions">
-        <button class="ready-btn" id="btn-ready" type="button" disabled>آماده‌ام</button>
-        <button class="ghost" id="btn-cancel" type="button">بازگشت</button>
+        <button class="ready-btn" id="btn-ready" type="button" disabled>آمادهٔ نبرد</button>
+        <button class="ghost" id="btn-cancel" type="button">بازگشت به منو</button>
       </div>
     </div>
   </section>
@@ -85,31 +98,56 @@
         <div class="brand">
           <b>OSTFRONT</b>
           <span id="hud-day">روز ۱</span>
+          <span id="hud-season" class="season-badge">تابستان</span>
         </div>
+
         <div class="res" id="hud-res">
-          <span title="صنعت"><i>⚙</i><b id="r-i">0</b></span>
-          <span title="نیرو"><i>♟</i><b id="r-m">0</b></span>
-          <span title="نفت"><i>◆</i><b id="r-o">0</b></span>
-          <span class="pop" title="سقف نیرو"><b id="r-pop">0</b>/<small>58</small></span>
-          <span title="شهرهای متصل به پایتخت"><i>⚓</i><b id="r-net">0</b></span>
-          <span title="امتیاز عملیاتی"><i>★</i><b id="r-vp">0</b></span>
+          <span title="صنعت و تولید فولاد"><i>⚙</i><b id="r-i">0</b></span>
+          <span title="نیروی انسانی و سربازان"><i>♟</i><b id="r-m">0</b></span>
+          <span title="ذخایر سوخت و نفت"><i>◆</i><b id="r-o">0</b></span>
+          <span class="pop" title="سقف یگان‌های فعال"><b id="r-pop">0</b>/<small>65</small></span>
+          <span title="شبکه راه‌آهن متصل به پایتخت"><i>⚓</i><b id="r-net">0</b></span>
+          <span title="امتیاز راهبردی جبهه (برد در ۲۴)"><i>★</i><b id="r-vp">0</b></span>
         </div>
+
+        <div class="speed-box" id="speed-box">
+          <button type="button" class="spd-btn" data-spd="0" title="توقف موقت (Space)">⏸</button>
+          <button type="button" class="spd-btn" data-spd="0.5" title="سرعت آهسته">½×</button>
+          <button type="button" class="spd-btn on" data-spd="1" title="سرعت عادی">۱×</button>
+          <button type="button" class="spd-btn" data-spd="2" title="سرعت دوبرابر">۲×</button>
+          <button type="button" class="spd-btn" data-spd="3" title="سرعت سه‌برابر">۳×</button>
+        </div>
+
         <div class="top-right">
           <span id="hud-scen"></span>
           <span id="hud-fac"></span>
-          <button type="button" id="btn-book" title="دفترچه">کتاب</button>
-          <button type="button" id="btn-mute" title="صدا">♪</button>
+          <button type="button" id="btn-book" title="دفترچه ستاد (H)">دفترچه</button>
+          <button type="button" id="btn-mute" title="قطع / وصل صدا">♪</button>
         </div>
       </header>
 
       <div id="toasts"></div>
-      <div id="cease" class="hidden">آتش‌بس</div>
+      <div id="cease" class="hidden">آتش‌بس آغازین</div>
+      
       <div id="fronts">
         <div class="front" id="f-north"><em>شمال</em><b></b></div>
         <div class="front" id="f-center"><em>مرکز</em><b></b></div>
         <div class="front" id="f-south"><em>جنوب</em><b></b></div>
       </div>
-      <div id="hint">رود را از شهر رد کن · راه‌آهن زنده سریع است · شهر خالی پارتیزان می‌شود</div>
+
+      <div id="doctrine-bar">
+        <div class="doc-header">دکترین‌های پشتیبانی ستاد:</div>
+        <div id="doc-buttons"></div>
+      </div>
+
+      <div id="cmd-bar" class="hidden">
+        <button type="button" id="cmd-atk" title="حمله در حین حرکت (A)">حمله (A)</button>
+        <button type="button" id="cmd-stop" title="توقف درجا (S)">توقف (S)</button>
+        <button type="button" id="cmd-hold" title="سنگربندی و دفاع (H)">سنگر (H)</button>
+        <button type="button" id="cmd-retreat" title="عقب‌نشینی به پایگاه (R)">عقب‌نشینی (R)</button>
+      </div>
+
+      <div id="hint">رود را از پل‌های شهری عبور بده · راه‌آهن زنده سرعت انتقال را دوچندان می‌کند · شهر خالی پارتیزان می‌شود</div>
 
       <aside id="prod" class="hidden">
         <header>
@@ -119,7 +157,7 @@
         <div id="prod-cards"></div>
         <div id="prod-upg"></div>
         <div id="prod-q"></div>
-        <p class="prod-tip">راست‌کلیک دور: انتقال با راه‌آهن</p>
+        <p class="prod-tip">راست‌کلیک دوردست: انتقال ریلی خودکار یگان‌های تولیدی</p>
       </aside>
 
       <aside id="sel" class="hidden">
@@ -138,8 +176,8 @@
       <div id="book" class="hidden">
         <div class="book-inner">
           <header>
-            <strong>دفترچهٔ ستاد</strong>
-            <button type="button" id="book-close">بستن</button>
+            <strong>دفترچهٔ راهنمای ستاد کل</strong>
+            <button type="button" id="book-close">بستن (Esc)</button>
           </header>
           <div class="book-cols">
             <nav id="book-nav"></nav>
@@ -153,6 +191,7 @@
         <h2 id="end-title"></h2>
         <p id="end-sub"></p>
         <div id="end-aar"></div>
+        <button type="button" id="end-restart" class="ready-btn" style="margin-top:20px;">بازگشت به ستاد</button>
       </div>
     </div>
   </section>

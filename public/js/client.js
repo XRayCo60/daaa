@@ -1,7 +1,7 @@
 'use strict';
 
 (() => {
-  const { WORLD, UNIT_TYPES, CITIES, CITY_R, FACTIONS, POP_CAP, roster, isWater } = OST;
+  const { WORLD, UNIT_TYPES, CITIES, CITY_R, FACTIONS, POP_CAP, roster, isWater, DOCTRINES } = OST;
 
   const $ = (id) => document.getElementById(id);
   const screens = {
@@ -14,7 +14,7 @@
     for (const k of Object.keys(screens)) screens[k].classList.toggle('on', k === name);
   }
 
-  /* ---------- audio ---------- */
+  /* ---------- AUDIO SYNTH ENGINE ---------- */
   let muted = false;
   let ac = null;
   function audio() {
@@ -36,207 +36,174 @@
       o.start(); o.stop(a.currentTime + dur);
     } catch (_) { /* ignore */ }
   }
-  function boom() {
+  function boom(vol, deep) {
     if (muted) return;
     try {
       const a = audio();
       const o = a.createOscillator();
       const g = a.createGain();
       o.type = 'sawtooth';
-      o.frequency.value = 90;
-      o.frequency.exponentialRampToValueAtTime(30, a.currentTime + 0.25);
-      g.gain.value = 0.05;
-      g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + 0.3);
+      o.frequency.value = deep ? 65 : 95;
+      o.frequency.exponentialRampToValueAtTime(25, a.currentTime + 0.35);
+      g.gain.value = vol || 0.06;
+      g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + 0.4);
       o.connect(g); g.connect(a.destination);
-      o.start(); o.stop(a.currentTime + 0.3);
+      o.start(); o.stop(a.currentTime + 0.4);
     } catch (_) { /* ignore */ }
   }
-  $('btn-mute').onclick = () => {
-    muted = !muted;
-    $('btn-mute').textContent = muted ? '×' : '♪';
-  };
-  function fillBookNav() {
-    const nav = $('book-nav');
-    if (!nav || !OST.BOOK) return;
-    nav.innerHTML = '';
-    OST.BOOK.forEach((ch, i) => {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.textContent = ch.titleFa;
-      b.onclick = () => showBookPage(i);
-      nav.appendChild(b);
+  function shotSfx(cls) {
+    if (muted) return;
+    try {
+      const a = audio();
+      if (cls === 'art') {
+        boom(0.08, true);
+      } else if (cls === 'tank') {
+        boom(0.06, false);
+      } else {
+        beep(350 + Math.random() * 100, 0.05, 'square', 0.02);
+      }
+    } catch (_) { /* ignore */ }
+  }
+  function victoryFanfare() {
+    if (muted) return;
+    [392, 523, 659, 784].forEach((f, i) => {
+      setTimeout(() => beep(f, 0.4, 'triangle', 0.08), i * 180);
     });
   }
-  function showBookPage(i) {
-    if (!OST.BOOK || !OST.BOOK[i]) return;
-    const ch = OST.BOOK[i];
-    const nav = $('book-nav');
-    if (nav) {
-      [...nav.children].forEach((b, n) => b.classList.toggle('on', n === i));
-    }
-    const page = $('book-page');
-    if (!page) return;
-    page.innerHTML = '<h3>' + ch.titleFa + '</h3>' + ch.paras.map(p => '<p>' + p + '</p>').join('');
+  function defeatFanfare() {
+    if (muted) return;
+    [440, 392, 330, 220].forEach((f, i) => {
+      setTimeout(() => beep(f, 0.5, 'sawtooth', 0.07), i * 220);
+    });
   }
-  function toggleBook() {
-    const el = $('book');
-    if (!el) return;
-    const on = el.classList.contains('hidden');
-    el.classList.toggle('hidden', !on);
-    if (on) { fillBookNav(); showBookPage(0); }
-  }
-  function closeBook() {
-    const el = $('book');
-    if (el) el.classList.add('hidden');
-  }
-  if ($('btn-book')) $('btn-book').onclick = () => toggleBook();
-  if ($('book-close')) $('book-close').onclick = () => closeBook();
 
-  /* ---------- local sim + optional LAN (no Node) ---------- */
-  const FILE = location.protocol === 'file:';
-  const { Game } = window.OSTGame;
-  let game = null;
+  /* ---------- STATE & NETWORKING ---------- */
+  let mode = null; // single | multi
+  let localGame = null;
   let myId = null;
-  let isHost = true;
   let myFac = null;
-  let meta = { phase: 'menu', mode: null, players: [] };
+  let isHost = false;
+  let difficulty = 'officer';
   let snapA = null, snapB = null, snapAt = 0;
-  const SNAP = 1000 / 12;
+  const SNAP = 80;
+  let lastShotCount = 0;
 
-  function send(obj) {
-    if (isHost && game) {
-      game.handle(myId, obj);
-      emit();
-      return;
-    }
-    lanPost('api/cmd', { id: myId, msg: obj });
+  let activeDoctrineTarget = null; // doctrine id awaiting map click
+  const controlGroups = {}; // 1..9 -> Set of unit ids
+  let lastGroupTap = { key: null, time: 0 };
+
+  const canvas = $('c');
+  const ctx = canvas.getContext('2d');
+  const cam = { x: 2000, y: 1400, z: 0.65, sw: window.innerWidth, sh: window.innerHeight };
+  let mmBox = null;
+
+  let mySel = new Set();
+  let selectedCity = null;
+  let box = null;
+  let panning = false, pan0 = { x: 0, y: 0, cx: 0, cy: 0 };
+  const keys = {};
+
+  const FILE = location.protocol === 'file:';
+
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = window.innerWidth * dpr;
+    canvas.height = window.innerHeight * dpr;
+    cam.sw = window.innerWidth;
+    cam.sh = window.innerHeight;
   }
+  window.addEventListener('resize', resize);
+  resize();
 
-  function emit() {
-    if (!game) return;
-    onHello(game.hello(myId));
-    if (game.phase === 'playing' || game.phase === 'ended') onState(game.serialize(myId));
-    if (!FILE && isHost) {
-      const hellos = {};
-      const states = {};
-      for (const id of game.clients.keys()) {
-        hellos[id] = game.hello(id);
-        if (game.phase === 'playing' || game.phase === 'ended') states[id] = game.serialize(id);
-      }
-      lanPost('api/snap', {
-        hellos,
-        states,
-        state: states[myId] || null
-      });
-    }
-  }
-
-  function lanPost(path, body) {
-    if (FILE) return Promise.resolve(null);
-    return fetch(path, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    }).then(r => r.ok ? r.json().catch(() => ({})) : null).catch(() => null);
-  }
-
-  function bootHost(id) {
-    game = new Game();
-    myId = game.connect(id || undefined);
-    isHost = true;
-    emit();
-  }
-
-  function connect() {
-    if (FILE) {
-      bootHost();
-      return;
-    }
-    fetch('api/join', { method: 'POST' }).then(r => {
-      if (!r.ok) throw new Error('no lan');
-      return r.json();
-    }).then(j => {
-      myId = j.id;
-      isHost = !!j.host;
-      if (isHost) bootHost(myId);
-      pollLan();
-    }).catch(() => {
-      bootHost();
-    });
-  }
-
-  function pollLan() {
-    setInterval(async () => {
-      try {
-        if (isHost && game) {
-          const bag = await fetch('api/cmds').then(r => r.json()).catch(() => null);
-          const cmds = (bag && bag.cmds) || [];
-          let dirty = false;
-          for (const c of cmds) {
-            if (!c || !c.id || !c.msg) continue;
-            if (!game.clients.has(c.id)) game.connect(c.id);
-            game.handle(c.id, c.msg);
-            dirty = true;
-          }
-          if (dirty) emit();
-          return;
-        }
-        const snap = await fetch('api/snap').then(r => r.json()).catch(() => null);
-        if (!snap) return;
-        if (snap.hellos && snap.hellos[myId]) onHello(snap.hellos[myId]);
-        else if (snap.hellos) {
-          const any = Object.values(snap.hellos)[0];
-          if (any && any.phase === 'lobby') {
-            onHello(Object.assign({}, any, { id: myId, players: (any.players || []).map(p => Object.assign({}, p, { you: p.id === myId })) }));
-          }
-        }
-        if (snap.states && snap.states[myId]) onState(snap.states[myId]);
-        else if (snap.state) onState(snap.state);
-      } catch (_) { /* ignore */ }
-    }, 90);
-  }
-
-  function onHello(msg) {
-    myId = msg.id;
-    meta = msg;
-    if (msg.phase === 'playing' || msg.phase === 'ended') {
-      const me = (msg.players || []).find(p => p.you);
-      if (me && me.faction) myFac = me.faction;
-      if (!screens.game.classList.contains('on')) enterGame();
-    } else if (msg.phase === 'lobby') {
-      $('busy').classList.add('hidden');
-      showLobby();
+  function send(msg) {
+    if (mode === 'single' || FILE) {
+      if (!localGame) return;
+      localGame.handle(myId || 'p1', msg);
     } else {
-      show('menu');
-      $('busy').classList.toggle('hidden', msg.phase !== 'busy');
-      const waiting = msg.phase === 'menu' && (msg.players || []).length && msg.mode === 'multi';
-      $('btn-join').classList.toggle('hidden', !waiting);
+      fetch('api/cmd', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(msg)
+      }).catch(() => {});
     }
-    paintLobby();
   }
 
-  function onState(msg) {
+  function initLocal() {
+    localGame = new OSTGame();
+    myId = localGame.connect('p1');
+    isHost = true;
+  }
+
+  function connectNet() {
+    if (FILE) { initLocal(); return; }
+    fetch('api/join', { method: 'POST' })
+      .then(r => r.json())
+      .then(d => {
+        myId = d.id;
+        isHost = d.host;
+      })
+      .catch(() => initLocal());
+  }
+  connectNet();
+
+  // Polling loop for networking
+  setInterval(async () => {
+    if (localGame) {
+      const state = localGame.serialize(myId);
+      const h = localGame.hello(myId);
+      applyHello(h);
+      applySnap(state);
+    } else if (!FILE) {
+      try {
+        const snap = await fetch('api/snap').then(r => r.json());
+        if (snap && snap.state) applySnap(snap.state);
+      } catch (_) {}
+    }
+  }, SNAP);
+
+  function applyHello(h) {
+    if (!h) return;
+    isHost = h.host;
+    if (h.difficulty) difficulty = h.difficulty;
+    if (h.you && h.you.faction) myFac = h.you.faction;
+
+    if (h.phase === 'menu') show('menu');
+    else if (h.phase === 'lobby') {
+      show('lobby');
+      renderLobby(h);
+    } else if (h.phase === 'playing') {
+      show('game');
+    }
+  }
+
+  function applySnap(raw) {
+    if (!raw) return;
     snapA = snapB;
-    snapB = normalize(msg);
+    snapB = unpackState(raw);
     snapAt = performance.now();
-    if (msg.phase === 'playing' || msg.phase === 'ended') {
-      if (screens.game.classList.contains('on') === false) enterGame();
-      applyHud(snapB);
-      if (msg.alerts) for (const a of msg.alerts) toast(a);
-      if (msg.deaths && msg.deaths.length) {
-        for (const d of msg.deaths) spawnFx(d[0], d[1]);
-        boom();
-      }
+
+    if (snapB.shots && snapB.shots.length > lastShotCount) {
+      const newShots = snapB.shots.slice(lastShotCount);
+      newShots.forEach(s => shotSfx(s[5]));
     }
-    if (msg.phase === 'ended') showEnd(msg);
-    if (msg.phase === 'menu' && screens.game.classList.contains('on')) {
-      show('menu');
+    lastShotCount = (snapB.shots || []).length;
+
+    if (snapB.phase === 'playing') {
+      show('game');
+      refreshHud(snapB);
+      refreshProd(snapB);
+      refreshSel(snapB);
+      refreshIntel(snapB);
+      refreshDoctrines(snapB);
+      refreshCmdBar(snapB);
+    } else if (snapB.phase === 'ended') {
+      showEnd(snapB);
     }
   }
 
-  function normalize(msg) {
+  function unpackState(msg) {
     const cities = (msg.cities || []).map(c => ({
-      id: c[0], owner: c[1], cap: c[2] / 100, capFac: c[3] || null,
+      id: c[0], owner: c[1], cap: c[2] / 100, capFac: c[3],
       queue: (c[4] || []).map(q => ({ type: q[0], left: q[1] })),
       rally: { x: c[5], y: c[6] },
       factory: c[7] || 0, barracks: c[8] || 0, depot: c[9] || 0,
@@ -246,18 +213,22 @@
     }));
     for (const c of cities) {
       const p = OST.cityById(c.id);
-      c.x = p.x; c.y = p.y;
+      if (p) { c.x = p.x; c.y = p.y; }
     }
     const units = (msg.units || []).map(u => ({
-      id: u[0], type: u[1], fac: u[2], x: u[3], y: u[4], hp: u[5], ang: u[6], supplied: !!u[7], ent: u[8] || 0
+      id: u[0], type: u[1], fac: u[2], x: u[3], y: u[4], hp: u[5], ang: u[6],
+      order: u[7], supplied: !!u[8], ent: (u[9] || 0) / 100,
+      rank: u[10] || 0, suppr: u[11] || 0, kills: u[12] || 0
     }));
     return {
-      phase: msg.phase, tick: msg.tick, day: msg.day,
-      season: msg.season, fog: !!msg.fog, cease: msg.cease || 0,
+      phase: msg.phase, tick: msg.tick, day: msg.day, speed: msg.speed,
+      season: msg.season, seasonFa: msg.seasonFa, fog: !!msg.fog, cease: msg.cease || 0,
       winner: msg.winner, winText: msg.winText,
       res: msg.res, pop: msg.pop, vp: msg.vp, hold: msg.hold,
       net: msg.net, owned: msg.owned, starved: msg.starved,
-      fronts: msg.fronts || null, rails: msg.rails || null,
+      fronts: msg.fronts || null, doctrines: msg.doctrines || {}, buffs: msg.buffs || {},
+      smokeClouds: msg.smokeClouds || [], reconFlights: msg.reconFlights || [],
+      combatEvents: msg.combatEvents || [],
       cities, units, shots: msg.shots || [], deaths: msg.deaths || [],
       alerts: msg.alerts || [],
       scenarioId: msg.scenarioId || 'barbarossa',
@@ -287,288 +258,208 @@
     return { ...snapB, units, shots: t < 0.7 ? snapB.shots : [] };
   }
 
-  /* ---------- menu / lobby ---------- */
-  $('btn-single').onclick = () => { beep(440, 0.08, 'square', 0.03); send({ t: 'mode', mode: 'single' }); };
+  /* ---------- MENU & LOBBY ---------- */
+  $('btn-single').onclick = () => {
+    beep(440, 0.08, 'square', 0.03);
+    mode = 'single';
+    if (!localGame) initLocal();
+    send({ t: 'mode', mode: 'single' });
+  };
   $('btn-multi').onclick = () => {
     beep(440, 0.08, 'square', 0.03);
-    if (FILE) {
-      $('busy').classList.remove('hidden');
-      $('busy').textContent = 'برای دونفره فایل lan.ps1 را در پاورشل اجرا کنید، بعد نشانی localhost را باز کنید.';
-      return;
-    }
+    mode = 'multi';
     send({ t: 'mode', mode: 'multi' });
   };
-  $('btn-join').onclick = () => send({ t: 'mode', mode: 'multi' });
-  $('pick-ger').onclick = () => pick('ger');
-  $('pick-sov').onclick = () => pick('sov');
-  buildOpsRow();
-  $('btn-ready').onclick = () => { beep(520, 0.1, 'triangle', 0.04); send({ t: 'ready' }); };
-  $('btn-cancel').onclick = () => send({ t: 'cancel' });
-  $('btn-copy').onclick = () => {
-    navigator.clipboard.writeText(location.href).catch(() => {});
-    $('btn-copy').textContent = 'کپی شد';
-    setTimeout(() => { $('btn-copy').textContent = 'رونوشت'; }, 1200);
+
+  function renderLobby(h) {
+    // Scenarios
+    const scenBox = $('ops-row');
+    if (scenBox && OST.SCENARIOS) {
+      const keys = Object.keys(OST.SCENARIOS);
+      if (scenBox.childElementCount !== keys.length) {
+        scenBox.innerHTML = '';
+        for (const k of keys) {
+          const sc = OST.SCENARIOS[k];
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'ops-card';
+          btn.dataset.scen = k;
+          btn.textContent = sc.nameFa;
+          btn.onclick = () => {
+            beep(400, 0.06, 'triangle', 0.03);
+            send({ t: 'scenario', scenarioId: k });
+          };
+          scenBox.appendChild(btn);
+        }
+      }
+      for (const b of scenBox.children) {
+        b.classList.toggle('on', b.dataset.scen === h.scenarioId);
+      }
+      const activeSc = OST.SCENARIOS[h.scenarioId];
+      if (activeSc && $('ops-brief')) {
+        $('ops-brief').textContent = (activeSc.briefFa || []).join(' ');
+      }
+    }
+
+    // Difficulty buttons
+    const diffButtons = document.querySelectorAll('.diff-btn');
+    diffButtons.forEach(btn => {
+      btn.classList.toggle('on', btn.dataset.diff === difficulty);
+      btn.onclick = () => {
+        beep(360, 0.05, 'triangle', 0.03);
+        difficulty = btn.dataset.diff;
+        send({ t: 'difficulty', difficulty });
+      };
+    });
+
+    // Faction picks
+    $('pick-ger').classList.toggle('on', myFac === 'ger');
+    $('pick-sov').classList.toggle('on', myFac === 'sov');
+    $('pick-ger').onclick = () => { beep(350, 0.06, 'square', 0.03); send({ t: 'faction', faction: 'ger' }); };
+    $('pick-sov').onclick = () => { beep(350, 0.06, 'square', 0.03); send({ t: 'faction', faction: 'sov' }); };
+
+    // Ready / Cancel
+    $('btn-ready').disabled = !myFac;
+    $('btn-ready').onclick = () => { beep(520, 0.1, 'sine', 0.05); send({ t: 'ready' }); };
+    $('btn-cancel').onclick = () => { beep(300, 0.08, 'sine', 0.03); send({ t: 'cancel' }); };
+  }
+
+  /* ---------- HUD & GAME PLAY ---------- */
+  function refreshHud(st) {
+    $('hud-day').textContent = 'روز ' + (st.day || 1);
+    if ($('hud-season')) $('hud-season').textContent = st.seasonFa || 'تابستان';
+
+    if (myFac && st.res && st.res[myFac]) {
+      const r = st.res[myFac];
+      $('r-i').textContent = r.i;
+      $('r-m').textContent = r.m;
+      $('r-o').textContent = r.o;
+      $('r-pop').textContent = st.pop[myFac] || 0;
+      $('r-net').textContent = st.net[myFac] || 0;
+      $('r-vp').textContent = st.vp[myFac] || 0;
+    }
+
+    // Fronts
+    if (st.fronts) {
+      for (const f of ['north', 'center', 'south']) {
+        const el = $('f-' + f);
+        if (el && st.fronts[f]) {
+          const info = st.fronts[f];
+          el.querySelector('b').textContent = info.ger + ' : ' + info.sov;
+          el.classList.toggle('lead-ger', info.lead === 'ger');
+          el.classList.toggle('lead-sov', info.lead === 'sov');
+        }
+      }
+    }
+
+    // Alerts
+    const tBox = $('toasts');
+    if (tBox && st.alerts) {
+      tBox.innerHTML = st.alerts.slice(-3).map(a => '<div class="toast">' + a + '</div>').join('');
+    }
+  }
+
+  function refreshDoctrines(st) {
+    if (!myFac) return;
+    const docs = DOCTRINES[myFac] || [];
+    const container = $('doc-buttons');
+    if (!container) return;
+
+    if (container.childElementCount !== docs.length) {
+      container.innerHTML = '';
+      for (const d of docs) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'doc-btn';
+        btn.dataset.doc = d.id;
+
+        const name = document.createElement('b');
+        name.textContent = d.nameFa;
+        btn.appendChild(name);
+
+        const cost = document.createElement('small');
+        cost.className = 'doc-cost';
+        cost.textContent = (d.cost.i ? d.cost.i + '⚙ ' : '') + (d.cost.m ? d.cost.m + '♟ ' : '') + (d.cost.o ? d.cost.o + '◆' : '');
+        btn.appendChild(cost);
+
+        btn.onclick = () => {
+          const cd = (st.doctrines && st.doctrines[d.id]) || 0;
+          if (cd > 0) return;
+          if (d.id === 'blitzkrieg' || d.id === 'order_227') {
+            send({ t: 'doctrine', doctrineId: d.id, x: 0, y: 0 });
+            beep(520, 0.15, 'triangle', 0.05);
+          } else {
+            // Enter targeting mode
+            activeDoctrineTarget = activeDoctrineTarget === d.id ? null : d.id;
+            beep(420, 0.08, 'sine', 0.04);
+            refreshDoctrines(st);
+          }
+        };
+
+        container.appendChild(btn);
+      }
+    }
+
+    for (const btn of container.children) {
+      const docId = btn.dataset.doc;
+      const d = docs.find(x => x.id === docId);
+      const cd = Math.ceil((st.doctrines && st.doctrines[docId]) || 0);
+      const r = st.res[myFac];
+      const affordable = (!d.cost.i || r.i >= d.cost.i) && (!d.cost.m || r.m >= d.cost.m) && (!d.cost.o || r.o >= d.cost.o);
+
+      btn.disabled = cd > 0 || !affordable;
+      btn.classList.toggle('active-target', activeDoctrineTarget === docId);
+
+      let overlay = btn.querySelector('.doc-cd-overlay');
+      if (cd > 0) {
+        if (!overlay) {
+          overlay = document.createElement('div');
+          overlay.className = 'doc-cd-overlay';
+          btn.appendChild(overlay);
+        }
+        overlay.textContent = cd + 's';
+      } else if (overlay) {
+        overlay.remove();
+      }
+    }
+  }
+
+  function refreshCmdBar(st) {
+    const cmdBar = $('cmd-bar');
+    if (!cmdBar) return;
+    const hasSel = mySel.size > 0;
+    cmdBar.classList.toggle('hidden', !hasSel);
+  }
+
+  // Hook command buttons
+  $('cmd-atk').onclick = () => { keys['KeyA'] = true; beep(320, 0.05, 'triangle', 0.03); };
+  $('cmd-stop').onclick = () => { send({ t: 'cmd', c: { k: 'stop', ids: [...mySel] } }); beep(280, 0.05, 'triangle', 0.03); };
+  $('cmd-hold').onclick = () => { send({ t: 'cmd', c: { k: 'hold', ids: [...mySel] } }); beep(300, 0.05, 'triangle', 0.03); };
+  $('cmd-retreat').onclick = () => { send({ t: 'cmd', c: { k: 'retreat', ids: [...mySel] } }); beep(240, 0.05, 'triangle', 0.03); };
+
+  // Speed controls
+  document.querySelectorAll('.spd-btn').forEach(btn => {
+    btn.onclick = () => {
+      const spd = Number(btn.dataset.spd);
+      send({ t: 'speed', speed: spd });
+      document.querySelectorAll('.spd-btn').forEach(b => b.classList.toggle('on', Number(b.dataset.spd) === spd));
+      beep(400, 0.05, 'sine', 0.03);
+    };
+  });
+
+  // Sound toggle
+  $('btn-mute').onclick = () => {
+    muted = !muted;
+    $('btn-mute').textContent = muted ? '🔇' : '♪';
   };
 
-  function pick(fac) {
-    send({ t: 'faction', faction: fac });
-    beep(360, 0.07, 'square', 0.03);
-  }
-
-  function buildOpsRow() {
-    const row = $('ops-row');
-    if (!row || !OST.SCENARIOS) return;
-    const list = OST.scenarioList ? OST.scenarioList() : Object.values(OST.SCENARIOS);
-    row.innerHTML = '';
-    for (const sc of list) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'op-card';
-      b.dataset.id = sc.id;
-      b.innerHTML = '<em>' + sc.whenFa + '</em><strong>' + sc.nameFa + '</strong>';
-      b.onclick = () => {
-        send({ t: 'scenario', id: sc.id });
-        beep(400, 0.05, 'triangle', 0.03);
-      };
-      row.appendChild(b);
-    }
-  }
-
-  function paintOps() {
-    const sid = meta.scenarioId || 'barbarossa';
-    const sc = OST.SCENARIOS && OST.SCENARIOS[sid];
-    const row = $('ops-row');
-    if (row) {
-      for (const b of row.children) b.classList.toggle('on', b.dataset.id === sid);
-    }
-    const brief = $('ops-brief');
-    if (brief && sc) {
-      brief.textContent = sc.kickerFa + ' — ' + (sc.briefFa && sc.briefFa[0] ? sc.briefFa[0] : '') + ' ' + (sc.noteFa || '');
-    }
-  }
-
-  function showLobby() {
-    show('lobby');
-    $('share-url').textContent = location.href;
-    $('url-box').classList.toggle('hidden', meta.mode !== 'multi');
-    paintLobby();
-  }
-
-  function paintLobby() {
-    if (meta.phase !== 'lobby') return;
-    const players = meta.players || [];
-    const me = players.find(p => p.you);
-    const gerTaken = players.some(p => !p.you && p.faction === 'ger');
-    const sovTaken = players.some(p => !p.you && p.faction === 'sov');
-    $('pick-ger').classList.toggle('on', me && me.faction === 'ger');
-    $('pick-sov').classList.toggle('on', me && me.faction === 'sov');
-    $('pick-ger').classList.toggle('taken', gerTaken);
-    $('pick-sov').classList.toggle('taken', sovTaken);
-    $('btn-ready').disabled = !(me && me.faction);
-    $('btn-ready').classList.toggle('go', me && me.ready);
-    $('btn-ready').textContent = me && me.ready ? 'منتظر حریف…' : 'آماده‌ام';
-    if (meta.mode === 'single') {
-      $('lobby-kicker').textContent = 'نبرد تک‌نفره';
-      $('lobby-sub').textContent = 'جبهه را انتخاب کن. ستاد کل، طرف دیگر را فرماندهی می‌کند.';
-      $('lobby-status').textContent = me && me.faction
-        ? (me.faction === 'ger' ? 'ورماخت — ضربهٔ اول، نفت کم' : 'ارتش سرخ — عمق و باکو')
-        : 'یک جبهه را لمس کن';
-      $('url-box').classList.add('hidden');
-    } else {
-      $('lobby-kicker').textContent = 'نبرد دونفره';
-      $('lobby-sub').textContent = 'هر کس یک جبهه. وقتی هر دو آماده باشند جنگ شروع می‌شود.';
-      const n = players.length;
-      const lines = players.map(p => {
-        const who = p.you ? 'تو' : 'حریف';
-        const f = p.faction ? FACTIONS[p.faction].nameFa : 'بدون جبهه';
-        return who + ' — ' + f + (p.ready ? ' ✓' : '');
-      });
-      $('lobby-status').textContent = (n < 2 ? 'منتظر بازیکن دوم…  ' : '') + lines.join('   |   ');
-      $('url-box').classList.remove('hidden');
-    }
-    paintOps();
-  }
-
-  /* ---------- game ---------- */
-  const canvas = $('c');
-  const ctx = canvas.getContext('2d');
-  const cam = { x: 1100, y: 900, z: 0.55, sw: innerWidth, sh: innerHeight };
-  let intro = 1;
-  let mySel = new Set();
-  let box = null;
-  let hover = null;
-  let selectedCity = null;
-  let keys = {};
-  let panning = false;
-  let pan0 = { x: 0, y: 0, cx: 0, cy: 0 };
-  let mm = { px: 14, py: 0, w: 220, h: 124, sx: 1, sy: 1 };
-  const fx = [];
-  let hintT = 0;
-
-  function enterGame() {
-    show('game');
-    const me = (meta.players || []).find(p => p.you);
-    if (me && me.faction) myFac = me.faction;
-    $('hud-fac').textContent = myFac ? FACTIONS[myFac].nameFa : '';
-    $('hud-fac').className = myFac || '';
-    const sc0 = OST.SCENARIOS && OST.SCENARIOS[meta.scenarioId];
-    if ($('hud-scen')) $('hud-scen').textContent = sc0 ? sc0.nameFa : '';
-    intro = 1;
-    cam.x = myFac === 'sov' ? 2400 : 1500;
-    cam.y = 1280;
-    cam.z = 0.28;
-    mySel = new Set();
-    selectedCity = null;
-    $('end').classList.add('hidden');
-    $('hint').classList.remove('out');
-    hintT = performance.now();
-    fit();
-    buildProdIcons();
-    beep(180, 0.4, 'sawtooth', 0.03);
-  }
-
-  function fit() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    cam.sw = innerWidth; cam.sh = innerHeight;
-    canvas.width = cam.sw * dpr;
-    canvas.height = cam.sh * dpr;
-    canvas.style.width = cam.sw + 'px';
-    canvas.style.height = cam.sh + 'px';
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  }
-  window.addEventListener('resize', fit);
-
-  function applyHud(st) {
-    if (!myFac || !st.res) return;
-    const r = st.res[myFac];
-    $('r-i').textContent = r.i;
-    $('r-m').textContent = r.m;
-    $('r-o').textContent = r.o;
-    $('r-pop').textContent = st.pop[myFac];
-    const sea = st.season || OST.season(st.day);
-    const scn = (OST.SCENARIOS && OST.SCENARIOS[st.scenarioId]) || null;
-    $('hud-day').textContent = 'روز ' + st.day + ' — ' + OST.seasonFa(sea);
-    if ($('hud-scen')) $('hud-scen').textContent = scn ? scn.nameFa : '';
-    const netEl = $('r-net');
-    if (netEl && st.net && st.owned) {
-      netEl.textContent = st.net[myFac] + '/' + st.owned[myFac];
-    }
-    const vpEl = $('r-vp');
-    if (vpEl && st.vp) {
-      vpEl.textContent = st.vp[myFac] + '/' + OST.VP_WIN;
-      if (st.hold && st.hold[myFac] > 0) vpEl.parentElement.style.color = '#e0c070';
-      else vpEl.parentElement.style.color = '';
-    }
-    const ce = $('cease');
-    if (ce) {
-      if (st.cease > 0) {
-        ce.classList.remove('hidden');
-        ce.textContent = 'آتش‌بس ' + st.cease + 'ث — تولید کن، محور را بچین';
-      } else ce.classList.add('hidden');
-    }
-    if (st.starved && st.starved[myFac]) {
-      $('r-o').parentElement.style.color = '#e07070';
-    } else {
-      $('r-o').parentElement.style.color = '';
-    }
-    if (st.fronts) {
-      for (const k of ['north', 'center', 'south']) {
-        const f = st.fronts[k];
-        const el = $('f-' + k);
-        if (!el || !f) continue;
-        const pct = f.n ? (100 * f.g / f.n) : 50;
-        el.querySelector('b').style.background =
-          'linear-gradient(to left, var(--sov) 0, var(--sov) ' + (100 - pct) + '%, var(--ger) ' + (100 - pct) + '%, var(--ger) 100%)';
-      }
-    }
-    refreshProd(st);
-    refreshSel(st);
-    refreshIntel(st);
-  }
-
-  const seenToasts = new Set();
-  function toast(a) {
-    if (a.fac && myFac && a.fac !== myFac) return;
-    const key = a.text + Math.floor(performance.now() / 2000);
-    if (seenToasts.has(key)) return;
-    seenToasts.add(key);
-    const el = document.createElement('div');
-    el.className = 'toast';
-    el.textContent = a.text;
-    $('toasts').appendChild(el);
-    setTimeout(() => el.remove(), 3800);
-  }
-
-  function spawnFx(x, y) {
-    for (let i = 0; i < 10; i++) {
-      fx.push({
-        x, y,
-        vx: (Math.random() - 0.5) * 80,
-        vy: (Math.random() - 0.5) * 80,
-        life: 0.45 + Math.random() * 0.25,
-        r: 3 + Math.random() * 6
-      });
-    }
-  }
-
-  function showEnd(st) {
-    const el = $('end');
-    el.classList.remove('hidden');
-    const win = st.winner === myFac;
-    $('end-kicker').textContent = win ? 'پیروزی' : 'شکست';
-    $('end-title').textContent = st.winText || '';
-    $('end-sub').textContent = win
-      ? (myFac === 'ger' ? 'رایش بر شرق چیره شد.' : 'مسکو ایستاد. رایش درهم شکست.')
-      : 'جبهه فرو ریخت.';
-    const box = $('end-aar');
-    if (box && st.aar) {
-      const a = st.aar;
-      const me = myFac || 'ger';
-      box.innerHTML =
-        '<span>کشته ' + (a.kills[me] || 0) + '</span>' +
-        '<span>از دست رفته ' + (a.lost[me] || 0) + '</span>' +
-        '<span>شهر ' + (a.cap[me] || 0) + '</span>' +
-        '<span>ساخته ' + (a.built[me] || 0) + '</span>';
-    }
-  }
-
-  function refreshIntel(st) {
-    const el = $('intel');
-    if (!el) return;
-    if (selectedCity) {
-      const dossier = OST.intelCity && OST.intelCity(selectedCity);
-      const proto = OST.cityById(selectedCity);
-      if (!dossier || !proto) { el.classList.add('hidden'); return; }
-      el.classList.remove('hidden');
-      $('intel-title').textContent = proto.nameFa;
-      $('intel-role').textContent = dossier.roleFa + ' · ' + dossier.tipFa;
-      $('intel-body').innerHTML = (dossier.bodyFa || []).slice(0, 5).map(p => '<p>' + p + '</p>').join('');
-      return;
-    }
-    if (mySel.size === 1 && st) {
-      const u = st.units.find(x => mySel.has(x.id));
-      const du = u && OST.intelUnit && OST.intelUnit(u.type);
-      const def = u && UNIT_TYPES[u.type];
-      if (du && def) {
-        el.classList.remove('hidden');
-        $('intel-title').textContent = def.nameFa;
-        $('intel-role').textContent = def.roleFa;
-        $('intel-body').innerHTML = (du.howFa || []).map(p => '<p>' + p + '</p>').join('');
-        return;
-      }
-    }
-    el.classList.add('hidden');
-  }
-
-  /* production */
-  function buildProdIcons() {
-    /* filled when city selected */
-  }
+  /* ---------- PRODUCTION ---------- */
   function refreshProd(st) {
     if (!selectedCity || !myFac) { $('prod').classList.add('hidden'); return; }
     const city = st.cities.find(c => c.id === selectedCity);
     if (!city || city.owner !== myFac) { $('prod').classList.add('hidden'); selectedCity = null; return; }
     $('prod').classList.remove('hidden');
+
     const proto = OST.cityById(city.id);
     $('prod-name').textContent = proto.nameFa;
     const bits = [];
@@ -578,6 +469,7 @@
     if (city.barracks) bits.push('سربازخانه ' + city.barracks);
     if (city.depot) bits.push('انبار');
     $('prod-own').textContent = bits.join(' · ');
+
     const types = roster(myFac);
     const box = $('prod-cards');
     if (box.childElementCount !== types.length) {
@@ -603,6 +495,7 @@
         box.appendChild(b);
       }
     }
+
     const r = st.res[myFac];
     const slots = 3 + (city.factory || 0);
     for (const b of box.children) {
@@ -614,9 +507,12 @@
       b.classList.toggle('off', !ok);
       b.title = can ? '' : ((d.cls === 'inf' || d.cls === 'recon' || d.cls === 'eng') ? 'سربازخانه لازم است' : 'کارخانه لازم است');
     }
+
     $('prod-q').textContent = city.queue.length
-      ? 'صف: ' + city.queue.map(q => UNIT_TYPES[q.type].nameFa + ' ' + Math.ceil(q.left) + 'ث').join(' ← ')
-      : 'صف خالی';
+      ? 'صف ساخت: ' + city.queue.map(q => UNIT_TYPES[q.type].nameFa + ' (' + Math.ceil(q.left) + 's)').join(' ← ')
+      : 'صف تولید خالی است';
+
+    // Upgrades
     const up = $('prod-upg');
     if (up) {
       const keys = Object.keys(OST.UPGRADES);
@@ -645,10 +541,6 @@
         b.disabled = busy || maxed || r.i < spec.i;
         b.classList.toggle('off', b.disabled);
       }
-      if (city.upg) {
-        const spec = OST.UPGRADES[city.upg[0]];
-        $('prod-q').textContent += '  |  ساخت ' + (spec ? spec.nameFa : city.upg[0]) + ' ' + city.upg[1] + 'ث';
-      }
     }
   }
 
@@ -658,55 +550,193 @@
     if (!us.length) { $('sel').classList.add('hidden'); mySel.clear(); return; }
     $('sel').classList.remove('hidden');
     $('sel').classList.toggle('sov', myFac === 'sov');
-    const first = UNIT_TYPES[us[0].type];
+
     if (us.length === 1) {
-      $('sel-name').textContent = first.nameFa;
-      $('sel-role').textContent = first.roleFa + (us[0].supplied ? '' : ' — بی‌تدارکات');
-      $('sel-hpbar').style.width = Math.max(0, 100 * us[0].hp / first.hp) + '%';
-      $('sel-count').textContent = first.name;
+      const u = us[0];
+      const d = UNIT_TYPES[u.type];
+      $('sel-name').textContent = d.nameFa + (u.rank ? ' ' + OST.VETERANCY[u.rank].stars : '');
+      $('sel-role').textContent = d.roleFa + (u.supplied ? '' : ' — فاقد تدارکات') + (u.ent > 0.3 ? ' · سنگربندی‌شده' : '');
+      $('sel-hpbar').style.width = Math.max(0, 100 * u.hp / d.hp) + '%';
+      $('sel-count').textContent = d.name + ' · انهدام: ' + (u.kills || 0);
     } else {
-      $('sel-name').textContent = us.length + ' یگان';
-      $('sel-role').textContent = 'گروه رزمی';
-      const hp = us.reduce((s, u) => s + u.hp / UNIT_TYPES[u.type].hp, 0) / us.length;
-      $('sel-hpbar').style.width = (hp * 100) + '%';
-      $('sel-count').textContent = us.map(u => UNIT_TYPES[u.type].nameFa).join('، ');
+      $('sel-name').textContent = us.length + ' یگان رزمی';
+      $('sel-role').textContent = 'دسته متمرکز جبهه';
+      const avgHp = us.reduce((s, u) => s + u.hp / UNIT_TYPES[u.type].hp, 0) / us.length;
+      $('sel-hpbar').style.width = (avgHp * 100) + '%';
+      $('sel-count').textContent = us.map(u => UNIT_TYPES[u.type].nameFa).slice(0, 4).join('، ') + (us.length > 4 ? '...' : '');
     }
   }
 
-  /* input */
+  function refreshIntel(st) {
+    const el = $('intel');
+    if (!el) return;
+    if (selectedCity) {
+      const dossier = OST.intelCity && OST.intelCity(selectedCity);
+      const proto = OST.cityById(selectedCity);
+      if (!dossier || !proto) { el.classList.add('hidden'); return; }
+      el.classList.remove('hidden');
+      $('intel-title').textContent = proto.nameFa;
+      $('intel-role').textContent = dossier.roleFa || '';
+      $('intel-body').innerHTML = (dossier.bodyFa || []).slice(0, 4).map(p => '<p>' + p + '</p>').join('');
+      return;
+    }
+    if (mySel.size === 1 && st) {
+      const u = st.units.find(x => mySel.has(x.id));
+      const du = u && OST.intelUnit && OST.intelUnit(u.type);
+      const def = u && UNIT_TYPES[u.type];
+      if (du && def) {
+        el.classList.remove('hidden');
+        $('intel-title').textContent = def.nameFa + (u.rank ? ' ' + OST.VETERANCY[u.rank].stars : '');
+        $('intel-role').textContent = def.roleFa;
+        $('intel-body').innerHTML = (du.howFa || []).map(p => '<p>' + p + '</p>').join('');
+        return;
+      }
+    }
+    el.classList.add('hidden');
+  }
+
+  function showEnd(st) {
+    const el = $('end');
+    el.classList.remove('hidden');
+    const win = st.winner === myFac;
+    if (win) victoryFanfare(); else defeatFanfare();
+    $('end-kicker').textContent = win ? 'پیروزی قاطع' : 'شکست راهبردی';
+    $('end-title').textContent = st.winText || '';
+    $('end-sub').textContent = win
+      ? (myFac === 'ger' ? 'ورماخت به پیروزی تاریخی در جبهه شرق دست یافت.' : 'ارتش سرخ برلین را تسخیر و رایش را درهم شکست.')
+      : 'جبهه نبرد فروپاشید.';
+
+    const box = $('end-aar');
+    if (box && st.aar) {
+      const a = st.aar;
+      const me = myFac || 'ger';
+      box.innerHTML =
+        '<span>دشمنان منهدم‌شده: <b>' + (a.kills[me] || 0) + '</b></span>' +
+        '<span>تلفات خودی: <b>' + (a.lost[me] || 0) + '</b></span>' +
+        '<span>شهرهای تسخیرشده: <b>' + (a.cap[me] || 0) + '</b></span>' +
+        '<span>یگان‌های ساخته‌شده: <b>' + (a.built[me] || 0) + '</b></span>';
+    }
+
+    $('end-restart').onclick = () => {
+      el.classList.add('hidden');
+      send({ t: 'cancel' });
+    };
+  }
+
+  /* ---------- INPUT & CONTROLS ---------- */
   window.addEventListener('keydown', (e) => {
     keys[e.code] = true;
-    if (e.code === 'Escape') { mySel.clear(); selectedCity = null; closeBook(); }
-    if (e.code === 'KeyH') { toggleBook(); }
-    if (e.code === 'KeyS' && (e.ctrlKey || e.metaKey)) return;
-    if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
+    if (e.code === 'Escape') {
+      mySel.clear();
+      selectedCity = null;
+      activeDoctrineTarget = null;
+      closeBook();
+    }
+    if (e.code === 'KeyH' && !e.ctrlKey) { toggleBook(); }
+    if (e.code === 'Space') {
+      e.preventDefault();
+      const curSpd = (snapB && snapB.speed !== undefined) ? snapB.speed : 1;
+      const nextSpd = curSpd > 0 ? 0 : 1;
+      send({ t: 'speed', speed: nextSpd });
+      document.querySelectorAll('.spd-btn').forEach(b => b.classList.toggle('on', Number(b.dataset.spd) === nextSpd));
+    }
+    if (e.code === 'KeyA' && (e.ctrlKey || e.metaKey)) {
+      // Select all friendly units on screen
+      e.preventDefault();
+      selectAllOnScreen();
+    }
+    // Control groups (1..9)
+    if (e.code.startsWith('Digit') && !e.altKey) {
+      const num = e.code.replace('Digit', '');
+      if (e.ctrlKey) {
+        // Assign group
+        e.preventDefault();
+        controlGroups[num] = new Set(mySel);
+        beep(480, 0.05, 'sine', 0.03);
+      } else {
+        // Select group
+        e.preventDefault();
+        const now = performance.now();
+        if (controlGroups[num] && controlGroups[num].size) {
+          mySel = new Set(controlGroups[num]);
+          beep(440, 0.05, 'sine', 0.03);
+          if (lastGroupTap.key === num && now - lastGroupTap.time < 300) {
+            // Focus camera on group
+            focusCameraOnSelection();
+          }
+          lastGroupTap = { key: num, time: now };
+        }
+      }
+    }
   });
+
   window.addEventListener('keyup', (e) => { keys[e.code] = false; });
 
+  function selectAllOnScreen() {
+    const st = lerpWorld();
+    if (!st || !myFac) return;
+    mySel.clear();
+    for (const u of st.units) {
+      if (u.fac !== myFac) continue;
+      const sx = (u.x - cam.x) * cam.z + cam.sw / 2;
+      const sy = (u.y - cam.y) * cam.z + cam.sh / 2;
+      if (sx >= 0 && sx <= cam.sw && sy >= 0 && sy <= cam.sh) {
+        mySel.add(u.id);
+      }
+    }
+    beep(380, 0.06, 'triangle', 0.03);
+  }
+
+  function focusCameraOnSelection() {
+    const st = lerpWorld();
+    if (!st) return;
+    const us = st.units.filter(u => mySel.has(u.id));
+    if (!us.length) return;
+    let sx = 0, sy = 0;
+    us.forEach(u => { sx += u.x; sy += u.y; });
+    cam.x = sx / us.length;
+    cam.y = sy / us.length;
+  }
+
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
   canvas.addEventListener('mousedown', (e) => {
     const st = lerpWorld();
     if (!st || !myFac) return;
     const w = GFX.worldFromScreen(cam, e.clientX, e.clientY);
+
+    // Check minimap click
+    if (mmBox && e.clientX >= mmBox.px && e.clientX <= mmBox.px + mmBox.w &&
+        e.clientY >= mmBox.py && e.clientY <= mmBox.py + mmBox.h) {
+      cam.x = (e.clientX - mmBox.px) / mmBox.sx;
+      cam.y = (e.clientY - mmBox.py) / mmBox.sy;
+      return;
+    }
+
+    // Check doctrine targeting click
+    if (activeDoctrineTarget && e.button === 0) {
+      send({ t: 'doctrine', doctrineId: activeDoctrineTarget, x: w.x, y: w.y });
+      activeDoctrineTarget = null;
+      beep(500, 0.1, 'triangle', 0.05);
+      return;
+    }
+
     if (e.button === 1 || (e.button === 0 && e.altKey)) {
       panning = true;
       pan0 = { x: e.clientX, y: e.clientY, cx: cam.x, cy: cam.y };
       return;
     }
-    // minimap
-    if (hitMinimap(e.clientX, e.clientY)) {
-      cam.x = (e.clientX - mm.px) / mm.sx;
-      cam.y = (e.clientY - mm.py) / mm.sy;
-      return;
-    }
+
     if (e.button === 2) {
       rightClick(st, w);
       return;
     }
+
     if (e.button === 0) {
       box = { x0: w.x, y0: w.y, x1: w.x, y1: w.y, sx: e.clientX, sy: e.clientY };
     }
   });
+
   window.addEventListener('mousemove', (e) => {
     if (panning) {
       cam.x = pan0.cx - (e.clientX - pan0.x) / cam.z;
@@ -718,6 +748,7 @@
       box.x1 = w.x; box.y1 = w.y;
     }
   });
+
   window.addEventListener('mouseup', (e) => {
     if (panning) { panning = false; return; }
     const st = lerpWorld();
@@ -730,6 +761,7 @@
     }
     box = null;
   });
+
   canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
     const before = GFX.worldFromScreen(cam, e.clientX, e.clientY);
@@ -739,159 +771,127 @@
     cam.y += before.y - after.y;
   }, { passive: false });
 
-  function hitMinimap(x, y) {
-    return x >= mm.px && x <= mm.px + mm.w && y >= mm.py && y <= mm.py + mm.h;
-  }
-
-  function leftClick(st, w, add) {
-    const u = pickUnit(st, w.x, w.y, myFac);
-    if (u) {
-      if (!add) mySel.clear();
-      mySel.add(u.id);
-      selectedCity = null;
-      beep(520, 0.04, 'square', 0.02);
+  function leftClick(st, w, shift) {
+    // City click
+    const nearCity = st.cities.find(c => Math.hypot(c.x - w.x, c.y - w.y) < CITY_R + 8);
+    if (nearCity) {
+      selectedCity = nearCity.id;
+      if (!shift) mySel.clear();
+      beep(320, 0.05, 'triangle', 0.03);
       return;
     }
-    const city = pickCity(st, w.x, w.y);
-    if (city && city.owner === myFac) {
-      selectedCity = city.id;
-      mySel.clear();
-      beep(400, 0.05, 'triangle', 0.02);
+    selectedCity = null;
+
+    // Unit click
+    const clickedUnit = st.units.find(u => Math.hypot(u.x - w.x, u.y - w.y) < (UNIT_TYPES[u.type] ? UNIT_TYPES[u.type].radius + 8 : 16));
+    if (clickedUnit) {
+      if (clickedUnit.fac === myFac) {
+        if (!shift) mySel.clear();
+        if (mySel.has(clickedUnit.id)) mySel.delete(clickedUnit.id);
+        else mySel.add(clickedUnit.id);
+        beep(360, 0.05, 'sine', 0.03);
+      }
       return;
     }
-    if (!add) { mySel.clear(); selectedCity = null; }
+
+    if (!shift) mySel.clear();
   }
 
-  function boxSelect(st, b, add) {
+  function boxSelect(st, b, shift) {
+    if (!shift) mySel.clear();
     const x0 = Math.min(b.x0, b.x1), x1 = Math.max(b.x0, b.x1);
     const y0 = Math.min(b.y0, b.y1), y1 = Math.max(b.y0, b.y1);
-    if (!add) mySel.clear();
     for (const u of st.units) {
-      if (u.fac !== myFac) continue;
-      if (u.x >= x0 && u.x <= x1 && u.y >= y0 && u.y <= y1) mySel.add(u.id);
+      if (u.fac === myFac && u.x >= x0 && u.x <= x1 && u.y >= y0 && u.y <= y1) {
+        mySel.add(u.id);
+      }
     }
-    if (mySel.size) selectedCity = null;
+    if (mySel.size) beep(400, 0.06, 'triangle', 0.03);
   }
 
   function rightClick(st, w) {
-    if (selectedCity) {
-      send({ t: 'cmd', c: { k: 'rally', city: selectedCity, x: w.x, y: w.y } });
-      beep(280, 0.05, 'square', 0.02);
-      return;
-    }
     if (!mySel.size) return;
-    const ids = [...mySel];
-    const enemy = pickUnit(st, w.x, w.y, null);
-    if (enemy && enemy.fac !== myFac) {
-      send({ t: 'cmd', c: { k: 'attack', ids, x: enemy.x, y: enemy.y, tid: enemy.id } });
+    const enemy = st.units.find(u => u.fac !== myFac && Math.hypot(u.x - w.x, u.y - w.y) < (UNIT_TYPES[u.type] ? UNIT_TYPES[u.type].radius + 8 : 16));
+    if (enemy) {
+      send({ t: 'cmd', c: { k: 'attack', ids: [...mySel], tid: enemy.id, x: enemy.x, y: enemy.y } });
+      beep(460, 0.06, 'square', 0.03);
     } else {
-      send({ t: 'cmd', c: { k: 'move', ids, x: w.x, y: w.y } });
+      send({ t: 'cmd', c: { k: 'move', ids: [...mySel], x: w.x, y: w.y } });
+      beep(380, 0.05, 'sine', 0.03);
     }
-    beep(240, 0.05, 'square', 0.025);
   }
 
-  function pickUnit(st, x, y, fac) {
-    let best = null, bd = 22;
-    for (const u of st.units) {
-      if (fac && u.fac !== fac) continue;
-      const d = Math.hypot(u.x - x, u.y - y);
-      const r = UNIT_TYPES[u.type].radius + 8;
-      if (d < r && d < bd) { bd = d; best = u; }
-    }
-    return best;
+  /* ---------- BOOK ---------- */
+  function toggleBook() {
+    const el = $('book');
+    el.classList.toggle('hidden');
+    if (!el.classList.contains('hidden')) renderBook();
   }
-  function pickCity(st, x, y) {
-    for (const c of st.cities) {
-      if (Math.hypot(c.x - x, c.y - y) < CITY_R) return c;
-    }
-    return null;
+  function closeBook() { $('book').classList.add('hidden'); }
+  $('btn-book').onclick = toggleBook;
+  $('book-close').onclick = closeBook;
+
+  function renderBook() {
+    const nav = $('book-nav');
+    const page = $('book-page');
+    if (!OST.BOOK || !nav) return;
+    nav.innerHTML = '';
+    OST.BOOK.forEach((ch, i) => {
+      const b = document.createElement('button');
+      b.textContent = ch.titleFa;
+      b.onclick = () => {
+        for (const c of nav.children) c.classList.remove('on');
+        b.classList.add('on');
+        page.innerHTML = '<h3>' + ch.titleFa + '</h3>' + (ch.paras || []).map(p => '<p>' + p + '</p>').join('');
+      };
+      if (i === 0) {
+        b.classList.add('on');
+        page.innerHTML = '<h3>' + ch.titleFa + '</h3>' + (ch.paras || []).map(p => '<p>' + p + '</p>').join('');
+      }
+      nav.appendChild(b);
+    });
   }
 
-  /* loop */
-  let last = performance.now();
-  function frame(now) {
-    const dt = Math.min(0.05, (now - last) / 1000);
-    last = now;
+  /* ---------- MAIN RENDER LOOP ---------- */
+  let lastTime = performance.now();
+  function loop(now) {
+    const dt = (now - lastTime) * 0.001;
+    lastTime = now;
+
+    // Keyboard Pan
+    const panSpeed = 750 / cam.z;
+    if (keys['KeyW'] || keys['ArrowUp']) cam.y -= panSpeed * dt;
+    if (keys['KeyS'] || keys['ArrowDown']) cam.y += panSpeed * dt;
+    if (keys['KeyA'] || keys['ArrowLeft']) cam.x -= panSpeed * dt;
+    if (keys['KeyD'] || keys['ArrowRight']) cam.x += panSpeed * dt;
+
+    cam.x = Math.max(100, Math.min(WORLD.W - 100, cam.x));
+    cam.y = Math.max(100, Math.min(WORLD.H - 100, cam.y));
+
     const st = lerpWorld();
-    if (screens.game.classList.contains('on') && st) {
-      if (intro > 0) {
-        intro = Math.max(0, intro - dt * 0.45);
-        cam.z = 0.24 + (1 - intro) * 0.12;
-      }
-      const sp = 520 * dt / cam.z;
-      if (keys.KeyW || keys.ArrowUp) cam.y -= sp;
-      if (keys.KeyS || keys.ArrowDown) cam.y += sp;
-      if (keys.KeyA || keys.ArrowLeft) cam.x -= sp;
-      if (keys.KeyD || keys.ArrowRight) cam.x += sp;
-      const e = 18;
-      if (now - (window._mxHover || 0) < 400) { /* skip */ }
-      cam.x = Math.max(200, Math.min(WORLD.W - 200, cam.x));
-      cam.y = Math.max(140, Math.min(WORLD.H - 140, cam.y));
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      ctx.setTransform((window.devicePixelRatio || 1) > 2 ? 2 : Math.min(window.devicePixelRatio || 1, 2), 0, 0, Math.min(window.devicePixelRatio || 1, 2), 0, 0);
-      ctx.clearRect(0, 0, cam.sw, cam.sh);
-      GFX.drawWorld(ctx, cam, st, mySel, box, hover, myFac, now / 1000);
-
-      for (let i = fx.length - 1; i >= 0; i--) {
-        const p = fx[i];
-        p.life -= dt; p.x += p.vx * dt; p.y += p.vy * dt;
-        const s = GFX.worldFromScreen; // draw in world via same transform — simpler overlay
-        void s;
-        if (p.life <= 0) fx.splice(i, 1);
-      }
-      // fx in screen space after world
+    if (st && st.phase === 'playing') {
+      const dpr = window.devicePixelRatio || 1;
       ctx.save();
+      ctx.scale(dpr, dpr);
       ctx.translate(cam.sw / 2, cam.sh / 2);
       ctx.scale(cam.z, cam.z);
       ctx.translate(-cam.x, -cam.y);
-      for (const p of fx) {
-        ctx.fillStyle = 'rgba(230,140,40,' + Math.max(0, p.life) + ')';
-        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.28); ctx.fill();
-      }
+
+      GFX.drawWorld(ctx, cam, st, mySel, box, null, myFac, dt);
       ctx.restore();
 
-      mm = GFX.drawMinimap(ctx, st, cam, myFac) || mm;
-      mm.py = cam.sh - mm.h - 16;
-      // redraw minimap at correct css coords (drawMinimap used innerHeight)
-      // already uses innerHeight inside — OK
-
-      if (now - hintT > 7000) $('hint').classList.add('out');
+      // Draw Minimap on screen HUD
+      ctx.save();
+      ctx.scale(dpr, dpr);
+      mmBox = GFX.drawMinimap(ctx, st, cam, myFac);
+      ctx.restore();
     }
-    requestAnimationFrame(frame);
+
+    requestAnimationFrame(loop);
   }
+  requestAnimationFrame(loop);
 
-  // edge scroll
-  let mx = 0, my = 0;
-  window.addEventListener('mousemove', (e) => { mx = e.clientX; my = e.clientY; });
-  setInterval(() => {
-    if (!screens.game.classList.contains('on')) return;
-    const m = 14, sp = 10 / cam.z;
-    if (mx < m) cam.x -= sp;
-    if (mx > innerWidth - m) cam.x += sp;
-    if (my < m) cam.y -= sp;
-    if (my > innerHeight - m) cam.y += sp;
-  }, 16);
-
-  document.body.addEventListener('click', () => { try { audio(); } catch (_) {} }, { once: true });
-
-  if (document.fonts && document.fonts.ready) {
-    document.fonts.ready.then(() => GFX.buildMap());
-  }
-  GFX.ensureMap();
-  connect();
-  setInterval(() => {
-    if (!isHost || !game) return;
-    if (game.phase === 'playing') {
-      game.tick(1 / OST.TICK);
-      onState(game.serialize(myId));
-      if (!FILE) emit();
-    } else if (game.phase === 'ended') {
-      onState(game.serialize(myId));
-      if (game.endedAt && Date.now() - game.endedAt > 14000) {
-        game.resetMenu();
-        emit();
-      }
-    }
-  }, 1000 / 12);
-  requestAnimationFrame(frame);
 })();
